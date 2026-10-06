@@ -505,3 +505,39 @@ async def test_solve_spin_guard_handles_empty_model_reply(monkeypatch):
     assert "(empty)" in agent.context.state.agent_state.pending_questions[0]
     ask_events = [payload for kind, payload in events if kind == "ask_user"]
     assert ask_events and ask_events[0]["last_reply"] == "(empty)"
+
+
+@pytest.mark.asyncio
+async def test_headless_run_answers_its_own_ask_user(monkeypatch):
+    """A run with no human attached must not end on ASK_USER - it self-answers.
+
+    Web tasks and CI runs have nobody to reply, so ending there throws the whole
+    engagement away; the loop should convert the question into a directive and
+    keep working instead.
+    """
+    agent = _Agent()
+    agent.config.session = SimpleNamespace(headless_autonomy=True)
+    calls = {"n": 0}
+    events: list[tuple[str, dict]] = []
+
+    async def fake_call_llm_auto(agent_arg, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "ASK_USER: should I keep probing the upload surface?"
+        return "NO_PATH: nothing further is reachable in scope."
+
+    monkeypatch.setattr("vulnclaw.agent.solver.call_llm_auto", fake_call_llm_auto)
+
+    result = await solve(
+        agent,
+        origin="http://t",
+        goal="capture flag",
+        max_steps=10,
+        on_event=lambda kind, payload: events.append((kind, payload)),
+    )
+
+    assert result.needs_user is False
+    assert calls["n"] >= 2
+    assert any(kind == "ask_user_suppressed" for kind, _ in events)
+    assert not any(kind == "ask_user" for kind, _ in events)
+    assert agent.context.state.agent_state.pending_questions == []

@@ -544,6 +544,12 @@ def _implicit_flag_completion(state: AgentState, text: str) -> tuple[bool, str, 
     return True, f"verified flag from recorded evidence: {grounded[0]}", evidence_ids
 
 
+def _headless_autonomy(agent: AgentContext) -> bool:
+    """Whether no human is attached (Web task / CI) to answer an ASK_USER."""
+    session = getattr(getattr(agent, "config", None), "session", None)
+    return bool(getattr(session, "headless_autonomy", False))
+
+
 def _prepare_state(agent: AgentContext, *, origin: str, goal: str) -> AgentState:
     state = agent.context.state.agent_state
     should_reset = bool(
@@ -776,6 +782,20 @@ async def _solve_impl(
                 agent.context.add_user_message(
                     "[near-miss guard] ASK_USER rejected: "
                     f"{rejection} Continue only after reassessing the unresolved evidence."
+                )
+                continue
+            if _headless_autonomy(agent):
+                # No human is attached (Web task / CI), so there is nobody to answer
+                # and stopping here would throw away the whole engagement. Tell the
+                # model to answer its own question instead.
+                state.add_correction_hint(
+                    f"[headless] unanswered question: {one_line(question, 200)}"
+                )
+                emit("ask_user_suppressed", {"question": question})
+                agent.context.add_user_message(
+                    "[headless] No human is available to answer that question. Decide with the "
+                    "best available evidence and keep working; if the path is genuinely blocked, "
+                    "finish with NO_PATH and say why."
                 )
                 continue
             state.ask_user(question)

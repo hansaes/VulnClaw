@@ -187,6 +187,9 @@ def start_task(manager: WebTaskManager, request: TaskCreateRequest) -> str:
 
 async def _run_task(manager: WebTaskManager, task_id: str, request: TaskCreateRequest) -> None:
     config = load_config()
+    # A Web task has no human attached: an ASK_USER would end the run with nobody
+    # able to answer it, so let the solve loop resolve such questions itself.
+    config.session.headless_autonomy = True
     # Web-triggered tasks (including persistent-cycle runs) build prompts and
     # reports outside the CLI, so the configured language must be resolved
     # here before any of that code runs — the CLI does this at its own

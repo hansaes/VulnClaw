@@ -407,6 +407,14 @@ class SessionConfig(BaseModel):
     )
     poc_language: str = Field(default="python", description="Default PoC language: python, bash")
     max_rounds: int = Field(default=15, description="Max autonomous pentest rounds (1-100)")
+    headless_autonomy: bool = Field(
+        default=False,
+        description=(
+            "Headless run (Web task / CI): no human is attached to answer ASK_USER, so the "
+            "solve loop turns an unanswered question into a self-answer directive instead of "
+            "ending the run. Interactive CLI/TUI runs leave this off."
+        ),
+    )
     context_hot_max_messages: int = Field(
         default=48,
         ge=4,
