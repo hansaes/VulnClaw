@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 from vulnclaw.agent.core import AgentCore
 from vulnclaw.config.settings import load_config
@@ -100,6 +101,79 @@ def _build_event_callback(manager: WebTaskManager, task_id: str):
     return _callback
 
 
+#: Batch thresholds for the web stream sink: one SSE event (and one task-state
+#: write) covers many provider tokens.
+_STREAM_FLUSH_SECONDS = 0.8
+_STREAM_FLUSH_CHARS = 600
+_STREAM_TEXT_LIMIT = 4000
+
+
+class _WebStreamSink:
+    """StreamSink that forwards model output onto the Web task stream.
+
+    Runs that pass a sink use the streaming call path, which keeps the provider
+    connection alive token-by-token. On the non-streaming path the gateway must
+    wait for the whole completion, and long reasoning turns regularly exceed
+    that deadline — the logged ``LLM 连接异常 (Request timed out.)`` retry
+    storms come from exactly that. Deltas are batched so the event stream and
+    the persisted task state are not rewritten once per token.
+    """
+
+    def __init__(self, manager: WebTaskManager, task_id: str) -> None:
+        self._manager = manager
+        self._task_id = task_id
+        self._buffers: dict[str, list[str]] = {}
+        self._last_flush = time.monotonic()
+
+    def _push(self, kind: str, text: str) -> None:
+        if not text:
+            return
+        parts = self._buffers.setdefault(kind, [])
+        parts.append(text)
+        if sum(len(part) for part in parts) >= _STREAM_FLUSH_CHARS or (
+            time.monotonic() - self._last_flush >= _STREAM_FLUSH_SECONDS
+        ):
+            self.flush()
+
+    def flush(self) -> None:
+        """Publish whatever is buffered; called on size, time and stream end."""
+        self._last_flush = time.monotonic()
+        for kind, parts in list(self._buffers.items()):
+            text = "".join(parts)
+            self._buffers[kind] = []
+            if text:
+                self._manager.publish(
+                    self._task_id,
+                    "agent_stream",
+                    {"type": kind, "text": text[-_STREAM_TEXT_LIMIT:]},
+                )
+
+    # ── StreamSink protocol ──────────────────────────────────────────────
+    def on_status(self, message: str) -> None:
+        self.flush()
+        self._manager.publish(
+            self._task_id, "agent_status", {"message": str(message or "")[:200]}
+        )
+
+    def on_thinking_token(self, token: str) -> None:
+        self._push("reasoning", token)
+
+    def on_content_token(self, token: str) -> None:
+        self._push("content", token)
+
+    def on_tool_call(self, tool_name: str, args: str) -> None:
+        self.flush()
+        self._manager.publish(
+            self._task_id, "agent_tool", {"tool": str(tool_name), "args": str(args)[:300]}
+        )
+
+    def on_tool_result(self, result_summary: str) -> None:
+        self.flush()
+
+    def on_stream_end(self) -> None:
+        self.flush()
+
+
 def start_task(manager: WebTaskManager, request: TaskCreateRequest) -> str:
     """Create and schedule a new task."""
     record = manager.create_task(request)
@@ -159,6 +233,7 @@ async def _run_task(manager: WebTaskManager, task_id: str, request: TaskCreateRe
             on_step=_build_step_callback(manager, task_id),
             on_cycle_step=_build_cycle_step_callback(manager, task_id),
             on_cycle_complete=_build_cycle_complete_callback(manager, task_id),
+            stream_sink=_WebStreamSink(manager, task_id),
         )
         _publish_action_result(manager, task_id, execution.action_result)
         manager.set_completed(task_id, latest_message="Task finished", summary=execution.run.summary)

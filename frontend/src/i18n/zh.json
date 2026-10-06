@@ -228,7 +228,7 @@
   "home.guide_step1": "① 填目标：要测的域名或 URL",
   "home.guide_step2": "② 选模式：要验证漏洞请选「扫描 + 验证」",
   "home.guide_step3": "③ 点开始：任务在后台跑，去「控制台」看实时流程、「发现」看漏洞结果",
-  "home.guide_note": "左侧是功能分区（扫描/发现/报告/范围/历史/控制台/设置），悬停右侧图标可看快捷操作说明。",
+  "home.guide_note": "左侧是功能分区（扫描/发现/报告/范围/历史/设置）；右侧竖栏是快捷操作，其中「控制台」可看任务实时流程。",
   "home.view_results": "查看结果",
   "home.view_reports": "查看报告",
   "home.view_boundary": "查看边界",

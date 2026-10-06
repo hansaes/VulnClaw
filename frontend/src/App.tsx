@@ -107,7 +107,6 @@ export function App() {
       { key: "reports" as const, label: t("nav.reports"), description: t("nav.reports_desc"), icon: "/icons/sidebar/reports.svg" },
       { key: "boundary" as const, label: t("nav.scope"), description: t("nav.scope_desc"), icon: "/icons/sidebar/scope.svg" },
       { key: "history" as const, label: t("nav.history"), description: t("nav.history_desc"), icon: "/icons/sidebar/history.svg" },
-      { key: "advanced" as const, label: t("nav.console"), description: t("nav.console_desc"), icon: "/icons/rail/console.svg" },
       { key: "settings" as const, label: t("nav.settings"), description: t("nav.settings_desc"), icon: "/icons/sidebar/settings.svg" },
     ],
     [t],
@@ -291,7 +290,7 @@ export function App() {
   return (
     <AppShell
       activeView={activeView}
-      activeNavView={activeView}
+      activeNavView={activeView === "advanced" ? "settings" : activeView}
       nav={nav}
       meta={VIEW_META[activeView]}
       quickActions={quickActions}

@@ -228,7 +228,7 @@
   "home.guide_step1": "① Enter a target: the domain or URL to test",
   "home.guide_step2": "② Pick a mode: choose \"Scan + verify\" when you want findings verified",
   "home.guide_step3": "③ Press start: the task runs in the background — follow it in Console, read results in Findings",
-  "home.guide_note": "Left side is the section menu; hover the icons on the right rail for quick actions.",
+  "home.guide_note": "Left side is the section menu; the right rail holds quick actions — open Console there to follow a task live.",
   "home.view_results": "View results",
   "home.view_reports": "View reports",
   "home.view_boundary": "View boundary",
