@@ -715,19 +715,28 @@ async def _solve_impl(
                     f"Last model reply: {last_reply_preview}. "
                     "Please provide the next action, a tighter scope, or confirm whether to stop."
                 )
-                state.ask_user(question)
-                needs_user = True
-                reason = "stopped after repeated turns without tool calls"
-                emit(
-                    "ask_user",
-                    {
-                        "question": question,
-                        "reason": reason,
-                        "last_reply": one_line(cleaned, 400) or "(empty)",
-                        "consecutive_no_tool_turns": no_tool_call_streak,
-                    },
-                )
-                stop_for_stall = True
+                if _headless_autonomy(agent):
+                    # Nobody can answer, and stopping throws the run away: keep the
+                    # model working instead. The step budget still bounds the loop.
+                    agent.context.add_user_message(
+                        "[headless] No human is available and this turn produced no tool call. "
+                        "Emit one tool call now; if nothing can be tried, finish with NO_PATH."
+                    )
+                    emit("ask_user_suppressed", {"question": question, "reason": "stall guard"})
+                else:
+                    state.ask_user(question)
+                    needs_user = True
+                    reason = "stopped after repeated turns without tool calls"
+                    emit(
+                        "ask_user",
+                        {
+                            "question": question,
+                            "reason": reason,
+                            "last_reply": one_line(cleaned, 400) or "(empty)",
+                            "consecutive_no_tool_turns": no_tool_call_streak,
+                        },
+                    )
+                    stop_for_stall = True
         else:
             no_tool_call_streak = 0
 
@@ -753,11 +762,22 @@ async def _solve_impl(
                     "The agent repeatedly reread saved evidence without producing new evidence. "
                     "Please provide a new hypothesis/scope, or rerun after adjusting the approach."
                 )
-                state.ask_user(question)
-                needs_user = True
-                reason = "stalled after repeated evidence-only turns"
-                emit("ask_user", {"question": question, "reason": reason})
-                stop_for_stall = True
+                if _headless_autonomy(agent):
+                    agent.context.add_user_message(
+                        "[headless] No human is available and recent turns only reread saved "
+                        "evidence. Take a different action that produces new evidence, or finish "
+                        "with NO_PATH explaining why nothing further is reachable."
+                    )
+                    emit(
+                        "ask_user_suppressed",
+                        {"question": question, "reason": "observation-only stall"},
+                    )
+                else:
+                    state.ask_user(question)
+                    needs_user = True
+                    reason = "stalled after repeated evidence-only turns"
+                    emit("ask_user", {"question": question, "reason": reason})
+                    stop_for_stall = True
         else:
             observation_only_streak = 0
 

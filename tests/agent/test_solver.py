@@ -541,3 +541,35 @@ async def test_headless_run_answers_its_own_ask_user(monkeypatch):
     assert any(kind == "ask_user_suppressed" for kind, _ in events)
     assert not any(kind == "ask_user" for kind, _ in events)
     assert agent.context.state.agent_state.pending_questions == []
+
+
+@pytest.mark.asyncio
+async def test_headless_run_survives_the_stall_guard(monkeypatch):
+    """The stall guard must nudge a headless run instead of ending it.
+
+    It raises ASK_USER, which no Web/CI run can answer, so the guard used to
+    terminate the engagement; headless runs should be kept working instead.
+    """
+    agent = _Agent()
+    agent.config.session = SimpleNamespace(headless_autonomy=True)
+    calls = {"n": 0}
+    events: list[tuple[str, dict]] = []
+
+    async def fake_call_llm_auto(agent_arg, *args, **kwargs):
+        calls["n"] += 1
+        return "Let me think about the next step carefully."
+
+    monkeypatch.setattr("vulnclaw.agent.solver.call_llm_auto", fake_call_llm_auto)
+
+    result = await solve(
+        agent,
+        origin="http://t",
+        goal="capture flag",
+        max_steps=8,
+        on_event=lambda kind, payload: events.append((kind, payload)),
+    )
+
+    assert result.needs_user is False
+    assert calls["n"] == 8
+    assert any(kind == "ask_user_suppressed" for kind, _ in events)
+    assert not any(kind == "ask_user" for kind, _ in events)
