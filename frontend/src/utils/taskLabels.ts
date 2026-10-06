@@ -62,6 +62,19 @@ export function formatEventLabel(event: string | null | undefined): string {
   return label !== key ? label : event;
 }
 
+export type EventTone = "ok" | "warn" | "danger" | "info";
+
+/** Map a task-stream event name onto the colour tone the console renders it with. */
+export function formatEventTone(event: string | null | undefined): EventTone {
+  const name = (event ?? "").toLowerCase();
+  if (!name) return "info";
+  if (name.includes("reject")) return "warn"; // near-miss guards (ask_user/no_path/complete)
+  if (name.includes("error") || name.includes("failed") || name.includes("no_path")) return "danger";
+  if (name.includes("ask_user") || name.includes("stopped")) return "warn";
+  if (name.includes("completed") || name.endsWith("complete")) return "ok";
+  return "info";
+}
+
 export function formatSeverityLabel(severity: string | null | undefined): string {
   if (!severity) return t("severity.info");
   const normalized = severity.toLowerCase();

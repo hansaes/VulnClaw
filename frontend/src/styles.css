@@ -548,6 +548,160 @@ code {
   color: #cfe0ff;
 }
 
+/* ── 控制台实时活动流 ─────────────────────────────────────────── */
+
+.feed-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.feed-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.feed-filter,
+.feed-follow,
+.activity-toggle {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.6);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.feed-filter.selected-item,
+.feed-follow.selected-item {
+  color: var(--text);
+  border-color: rgba(79, 140, 255, 0.38);
+  background: rgba(79, 140, 255, 0.12);
+}
+
+.activity-feed {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.activity-row {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: rgba(11, 17, 31, 0.9);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.activity-row.tone-ok {
+  border-left-color: rgba(143, 224, 192, 0.7);
+}
+
+.activity-row.tone-warn {
+  border-left-color: rgba(255, 210, 122, 0.7);
+}
+
+.activity-row.tone-danger {
+  border-left-color: rgba(255, 158, 158, 0.75);
+}
+
+.activity-row.tone-info {
+  border-left-color: rgba(79, 140, 255, 0.35);
+}
+
+.activity-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.activity-label {
+  font-weight: 700;
+}
+
+.activity-step,
+.activity-phase {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(79, 140, 255, 0.14);
+  color: #bcd3ff;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.activity-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #d7e7ff;
+}
+
+.activity-text.clamped {
+  max-height: 4.6em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+}
+
+.activity-text.clickable {
+  cursor: pointer;
+}
+
+.tool-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tool-chip {
+  padding: 1px 8px;
+  border: 1px solid rgba(79, 140, 255, 0.24);
+  border-radius: 999px;
+  background: rgba(79, 140, 255, 0.08);
+  color: #a9c6ff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.tool-chip.more {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.activity-group {
+  background: rgba(23, 33, 56, 0.85);
+}
+
+.activity-title {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.activity-goal {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.activity-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.activity-toggle {
+  justify-self: start;
+}
+
 .settings-mode-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

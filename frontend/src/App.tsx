@@ -372,7 +372,7 @@ export function App() {
             navigateToView("advanced");
           }}
           onEvent={(event) => {
-            setTaskEvents((prev) => [...prev.slice(-79), event]);
+            setTaskEvents((prev) => [...prev.slice(-299), event]);
           }}
           onFocusTarget={(target) => {
             setSelectedTarget(target);

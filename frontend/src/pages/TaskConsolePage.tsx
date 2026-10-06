@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createTask, stopTask } from "../api/web";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useTasksQuery } from "../hooks/queries";
@@ -9,6 +9,7 @@ import {
   formatActionList,
   formatConstraintSummary,
   formatEventLabel,
+  formatEventTone,
   formatPhaseLabel,
   formatTaskCommand,
   formatTaskStatus,
@@ -25,6 +26,55 @@ function buildActionOptions(t: TFunction) {
     { value: "post_exploitation", copy: t("home.action_post_exploit_copy") },
   ];
 }
+
+type EventFilter = "all" | "tools" | "subagents" | "key";
+
+const SUBAGENT_EVENT_KINDS = new Set(["subagent", "group_progress"]);
+const KEY_EVENT_KINDS = new Set([
+  "error",
+  "ask_user",
+  "ask_user_rejected",
+  "no_path",
+  "no_path_rejected",
+  "completed",
+  "complete_rejected",
+  "task_failed",
+  "task_stopped",
+]);
+
+/** Tool names carried by an observation event. */
+function eventTools(item: TaskEvent): string[] {
+  const raw = item.payload.tools;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((tool): tool is string => typeof tool === "string" && tool.length > 0);
+}
+
+function matchesFilter(item: TaskEvent, filter: EventFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "tools") return item.event === "agent_observation" || eventTools(item).length > 0;
+  if (filter === "subagents") return SUBAGENT_EVENT_KINDS.has(item.event);
+  return KEY_EVENT_KINDS.has(item.event);
+}
+
+/** The single line the feed shows for an event (payload text first, label as fallback). */
+function eventText(item: TaskEvent): string {
+  for (const key of ["text", "message", "reason", "question", "error"]) {
+    const value = item.payload[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return formatEventLabel(item.event);
+}
+
+function numberField(item: TaskEvent, key: string): number | null {
+  const value = item.payload[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringField(item: TaskEvent, key: string): string {
+  const value = item.payload[key];
+  return typeof value === "string" ? value : "";
+}
+
 
 interface TaskConsolePageProps {
   activeTask: TaskRecord | null;
@@ -63,7 +113,15 @@ export function TaskConsolePage({
   const [confirmRunOpen, setConfirmRunOpen] = useState(false);
   const [confirmStopOpen, setConfirmStopOpen] = useState(false);
 
-  const latestEvents = useMemo(() => events.slice(-24).reverse(), [events]);
+  const [followFeed, setFollowFeed] = useState(true);
+  const [eventFilter, setEventFilter] = useState<EventFilter>("all");
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+  const feedRef = useRef<HTMLDivElement | null>(null);
+
+  const feedEvents = useMemo(
+    () => events.filter((item) => matchesFilter(item, eventFilter)).slice(-200),
+    [events, eventFilter],
+  );
   const requiresRunConfirmation = command === "exploit" || command === "persistent";
   const scopePreview = formatConstraintSummary({
     only_port: onlyPort.trim() || undefined,
@@ -80,24 +138,13 @@ export function TaskConsolePage({
     scope: scopePreview,
   });
 
-  function renderEventText(item: TaskEvent): string {
-    const payload = item.payload;
-    const parts: string[] = [];
-    if (typeof payload.cycle === "number") parts.push(`cycle ${payload.cycle}`);
-    if (typeof payload.round === "number") parts.push(`round ${payload.round}`);
-    if (typeof payload.phase === "string") parts.push(formatPhaseLabel(payload.phase));
-    const text = typeof payload.text === "string" ? payload.text : "";
-    const message = typeof payload.message === "string" ? payload.message : "";
-    parts.push(text || message || formatEventLabel(item.event));
-    return parts.join(" - ");
-  }
+  useEffect(() => {
+    const node = feedRef.current;
+    if (followFeed && node) node.scrollTop = node.scrollHeight;
+  }, [feedEvents, followFeed]);
 
-  function eventTone(eventName: string): "ok" | "warn" | "danger" | "info" {
-    if (eventName.includes("completed")) return "ok";
-    if (eventName.includes("failed")) return "danger";
-    if (eventName.includes("stopped")) return "warn";
-    if (eventName.includes("state") || eventName.includes("started")) return "info";
-    return "info";
+  function toggleRow(key: string) {
+    setExpandedRows((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
   function toggleAction(
@@ -346,7 +393,38 @@ export function TaskConsolePage({
 
         <article className="card inset-card">
           <h4>{t("console.live_events")}</h4>
-          <div className="terminal terminal-scroll">
+
+          <div className="feed-toolbar">
+            <div className="feed-filters">
+              {(["all", "tools", "subagents", "key"] as EventFilter[]).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={`feed-filter ${eventFilter === value ? "selected-item" : ""}`}
+                  onClick={() => setEventFilter(value)}
+                >
+                  {t(`console.filter_${value}`)}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className={`feed-follow ${followFeed ? "selected-item" : ""}`}
+              onClick={() => setFollowFeed((prev) => !prev)}
+            >
+              {followFeed ? t("console.follow") : t("console.follow_paused")}
+            </button>
+          </div>
+
+          <div
+            className="terminal terminal-scroll activity-feed"
+            ref={feedRef}
+            onScroll={(event) => {
+              const node = event.currentTarget;
+              const atBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+              if (!atBottom && followFeed) setFollowFeed(false);
+            }}
+          >
             {activeTask ? (
               <>
                 <div className="terminal-line">{t("console.task_id", { id: activeTask.task_id })}</div>
@@ -361,13 +439,76 @@ export function TaskConsolePage({
               <div className="terminal-line dim">{t("console.no_running")}</div>
             )}
 
-            {latestEvents.map((item) => (
-              <div key={`${item.timestamp}-${item.event}`} className="terminal-line terminal-row">
-                <span className={`terminal-event tone-${eventTone(item.event)}`}>{formatEventLabel(item.event)}</span>
-                <span className="terminal-time">{new Date(item.timestamp).toLocaleTimeString()}</span>
-                <span>{renderEventText(item)}</span>
-              </div>
-            ))}
+            {activeTask && !feedEvents.length && <div className="terminal-line dim">{t("console.no_events")}</div>}
+
+            {feedEvents.map((item, index) => {
+              const key = `${item.timestamp}-${item.event}-${index}`;
+              const tone = formatEventTone(item.event);
+
+              if (item.event === "group_progress") {
+                const total = numberField(item, "member_total") ?? 0;
+                const done = numberField(item, "member_done") ?? 0;
+                const failed = numberField(item, "member_failed") ?? 0;
+                const waves = numberField(item, "wave_count") ?? 0;
+                const evidence = numberField(item, "evidence_count") ?? 0;
+                const name = stringField(item, "name") || formatEventLabel(item.event);
+                const goal = stringField(item, "goal");
+                return (
+                  <div key={key} className={`activity-row activity-group tone-${tone}`}>
+                    <div className="activity-head">
+                      <span className="activity-label">{formatEventLabel(item.event)}</span>
+                      <span className="terminal-time">{new Date(item.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <div className="activity-title">{name}</div>
+                    {goal && <div className="activity-goal">{goal}</div>}
+                    <div className="activity-meta">
+                      <span>{t("console.members", { done: String(done), total: String(total) })}</span>
+                      {failed > 0 && <span className="tone-danger">{t("console.members_failed", { count: String(failed) })}</span>}
+                      {waves > 0 && <span>{t("console.waves", { count: String(waves) })}</span>}
+                      {evidence > 0 && <span>{t("console.evidence", { count: String(evidence) })}</span>}
+                    </div>
+                  </div>
+                );
+              }
+
+              const text = eventText(item);
+              const tools = eventTools(item);
+              const step = numberField(item, "step");
+              const phase = stringField(item, "phase");
+              const long = text.length > 180;
+              const expanded = Boolean(expandedRows[key]);
+              return (
+                <div key={key} className={`activity-row tone-${tone}`}>
+                  <div className="activity-head">
+                    <span className="terminal-time">{new Date(item.timestamp).toLocaleTimeString()}</span>
+                    <span className="activity-label">{formatEventLabel(item.event)}</span>
+                    {step !== null && <span className="activity-step">#{step}</span>}
+                    {phase && <span className="activity-phase">{formatPhaseLabel(phase)}</span>}
+                  </div>
+                  <div
+                    className={`activity-text ${long && !expanded ? "clamped" : ""} ${long ? "clickable" : ""}`}
+                    onClick={long ? () => toggleRow(key) : undefined}
+                  >
+                    {text}
+                  </div>
+                  {tools.length > 0 && (
+                    <div className="tool-chips">
+                      {tools.slice(0, 8).map((tool) => (
+                        <span key={tool} className="tool-chip">{tool}</span>
+                      ))}
+                      {tools.length > 8 && (
+                        <span className="tool-chip more">{t("console.tools_more", { count: String(tools.length - 8) })}</span>
+                      )}
+                    </div>
+                  )}
+                  {long && (
+                    <button type="button" className="activity-toggle" onClick={() => toggleRow(key)}>
+                      {expanded ? t("console.collapse") : t("console.expand")}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </article>
       </div>
