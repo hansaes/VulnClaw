@@ -17,6 +17,16 @@ services:
     ports:
       # host:container — change the host side to expose elsewhere.
       - "127.0.0.1:7788:7788"
+    environment:
+      # Docker Desktop injects the host's HTTP(S)_PROXY into containers. That
+      # proxy took 6-20s to establish a connection here, while the LLM client
+      # allows only 5s (openai SDK default connect timeout) — every model call
+      # failed with ConnectTimeout and the agent's solver loop kept dying
+      # (measured 10/10 failures via the proxy vs 0/10 with these hosts
+      # exempted). Exempt the model endpoint and the scan target so they go
+      # direct.
+      NO_PROXY: "localhost,127.0.0.1,host.docker.internal,codebuddy.1263831.xyz,cpa.1263831.xyz,xiaocaiyu.vip"
+      no_proxy: "localhost,127.0.0.1,host.docker.internal,codebuddy.1263831.xyz,cpa.1263831.xyz,xiaocaiyu.vip"
     volumes:
       # Persist config, sessions, targets and reports across restarts.
       - vulnclaw-data:/data

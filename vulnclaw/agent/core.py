@@ -52,6 +52,14 @@ from vulnclaw.i18n import _
 from vulnclaw.kb.experience import ExperienceStore
 from vulnclaw.target_state.store import save_target_state
 
+#: Wall-clock timeout for provider calls. The OpenAI SDK defaults to a 5s connect
+#: budget, but the endpoints reachable from here regularly need 6-20s to
+#: establish a connection (proxied or direct), so every such call died with a
+#: ConnectTimeout and the solve loop spent its error budget on transport noise.
+#: A generous timeout lets slow connects and long reasoning turns finish; the
+#: streaming call path keeps the connection warm once it is up.
+_LLM_CLIENT_TIMEOUT_SECONDS = 300.0
+
 # Optional KB integration — gracefully degrade if KB data is unavailable
 try:
     from vulnclaw.kb.retriever import KnowledgeRetriever, RetrieverStatus
@@ -336,7 +344,9 @@ class AgentCore:
             if self._client is None:
                 try:
                     self._client = make_openai_client(
-                        api_key="local-proxy", base_url=proxy_base
+                        api_key="local-proxy",
+                        base_url=proxy_base,
+                        timeout=_LLM_CLIENT_TIMEOUT_SECONDS,
                     )
                 except ImportError:
                     raise RuntimeError("请安装 openai 包: pip install openai")
@@ -354,6 +364,7 @@ class AgentCore:
                 self._client = make_openai_client(
                     api_key=token or "placeholder",
                     base_url=llm.base_url,
+                    timeout=_LLM_CLIENT_TIMEOUT_SECONDS,
                 )
             except ImportError:
                 raise RuntimeError("请安装 openai 包: pip install openai")
