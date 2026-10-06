@@ -1,0 +1,26 @@
+# Deploy the pre-built image published to GHCR by GitHub Actions
+# (.github/workflows/docker-publish.yml) — no local build required.
+#
+#   docker compose -f docker-compose.ghcr.yml up -d
+#
+# For a private image, log in first:  docker login ghcr.io
+services:
+  vulnclaw:
+    image: ghcr.io/hansaes/vulnclaw:latest
+    container_name: vulnclaw
+    # LLM credentials and overrides come from .env (see .env.example).
+    # Optional so `docker compose up` works before you create one — the Web
+    # UI Settings page can configure the LLM at runtime instead.
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      # host:container — change the host side to expose elsewhere.
+      - "127.0.0.1:7788:7788"
+    volumes:
+      # Persist config, sessions, targets and reports across restarts.
+      - vulnclaw-data:/data
+    restart: unless-stopped
+
+volumes:
+  vulnclaw-data:
