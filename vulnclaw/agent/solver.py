@@ -50,6 +50,11 @@ _EVIDENCE_ID_RE = re.compile(r"\be\d{3,}\b", re.IGNORECASE)
 #: threshold of 3 far too often — at ~50% per-call failures that is a stopping
 #: probability near 12.5% per turn, which kills otherwise healthy runs.
 _MAX_CONSECUTIVE_LLM_ERRORS = 8
+#: Consecutive tool-less turns tolerated before the stall guard ends the run.
+#: Reasoning-only turns are often recoverable — the model resumes after a nudge —
+#: and a headless run cannot answer the ask_user that precedes the hard stop, so
+#: the streak is generous and escalates once before stopping.
+_MAX_TOOL_LESS_TURNS = 6
 _FINAL_MARKERS = ("FINAL:", "Final:", "final:", "DONE:", "[DONE]", "完成：", "最终结果：")
 _ASK_MARKERS = ("ASK_USER:", "Ask user:", "ask_user:", "需要用户：", "请用户确认：")
 _NO_PATH_MARKERS = ("NO_PATH:", "No viable path:", "无法继续：", "没有可继续验证的路径：")
@@ -686,7 +691,18 @@ async def _solve_impl(
                 )
                 state.add_correction_hint(hint)
                 stall_guard_message = f"[stall guard] {hint}"
-            if no_tool_call_streak >= 3:
+            if no_tool_call_streak >= 4:
+                # Escalate once before the hard stop: name the required behaviour so a
+                # model that lapsed into pure analysis gets an explicit way back.
+                escalation = (
+                    f"HARD reminder: {no_tool_call_streak} consecutive turns produced no "
+                    "tool call. Do not reply with analysis alone - emit exactly one tool "
+                    "call now, and put your reasoning in that tool's assessment_reason "
+                    "field."
+                )
+                state.add_correction_hint(escalation)
+                stall_guard_message = f"[stall guard] {escalation}"
+            if no_tool_call_streak >= _MAX_TOOL_LESS_TURNS:
                 last_reply_preview = one_line(cleaned, 300) or "(empty)"
                 question = (
                     "The agent stopped issuing tool calls and is only reasoning. "

@@ -435,7 +435,7 @@ async def test_solve_stops_repeated_tool_less_turns(monkeypatch):
     assert result.needs_user is True
     assert result.completed is False
     assert result.reason == "stopped after repeated turns without tool calls"
-    assert calls["n"] == 3
+    assert calls["n"] == 6
     assert any(kind == "ask_user" for kind, _ in events)
     assert any(kind == "agent_observation" for kind, _ in events)
     assert "stopped issuing tool calls" in agent.context.state.agent_state.pending_questions[0]
@@ -448,7 +448,14 @@ async def test_solve_spin_guard_surfaces_last_reply_and_hints_model(monkeypatch)
     agent = _Agent()
     calls = {"n": 0}
     events: list[tuple[str, dict]] = []
-    replies = ["thinking about payload choice", "still reasoning quietly", "nearly decided"]
+    replies = [
+        "thinking about payload choice",
+        "still reasoning quietly",
+        "nearly decided",
+        "weighing the encoding option",
+        "double-checking the route table",
+        "settling on the final answer",
+    ]
 
     async def fake_call_llm_auto(agent_arg, *args, **kwargs):
         calls["n"] += 1
@@ -467,8 +474,8 @@ async def test_solve_spin_guard_surfaces_last_reply_and_hints_model(monkeypatch)
     assert result.reason == "stopped after repeated turns without tool calls"
     ask_events = [payload for kind, payload in events if kind == "ask_user"]
     assert ask_events
-    assert ask_events[0]["last_reply"] == "nearly decided"
-    assert ask_events[0]["consecutive_no_tool_turns"] == 3
+    assert ask_events[0]["last_reply"] == "settling on the final answer"
+    assert ask_events[0]["consecutive_no_tool_turns"] == 6
     hints = agent.context.state.agent_state.correction_hints
     assert any("consecutive turns produced no tool call" in hint for hint in hints)
     assert any("still reasoning quietly" in hint for hint in hints)
