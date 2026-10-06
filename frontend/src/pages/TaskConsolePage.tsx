@@ -58,6 +58,11 @@ function matchesFilter(item: TaskEvent, filter: EventFilter): boolean {
 
 /** The single line the feed shows for an event (payload text first, label as fallback). */
 function eventText(item: TaskEvent): string {
+  if (item.event === "agent_tool") {
+    const tool = stringField(item, "tool");
+    const args = stringField(item, "args");
+    if (tool) return args ? `${tool}(${args})` : tool;
+  }
   for (const key of ["text", "message", "reason", "question", "error"]) {
     const value = item.payload[key];
     if (typeof value === "string" && value.trim()) return value.trim();
