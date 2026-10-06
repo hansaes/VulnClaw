@@ -102,12 +102,13 @@ export function App() {
 
   const nav = useMemo(
     () => [
-      { key: "home" as const, label: t("nav.scan"), description: "", icon: "/icons/sidebar/scan.svg" },
-      { key: "risk" as const, label: t("nav.findings"), description: "", icon: "/icons/sidebar/findings.svg" },
-      { key: "reports" as const, label: t("nav.reports"), description: "", icon: "/icons/sidebar/reports.svg" },
-      { key: "boundary" as const, label: t("nav.scope"), description: "", icon: "/icons/sidebar/scope.svg" },
-      { key: "history" as const, label: t("nav.history"), description: "", icon: "/icons/sidebar/history.svg" },
-      { key: "settings" as const, label: t("nav.settings"), description: "", icon: "/icons/sidebar/settings.svg" },
+      { key: "home" as const, label: t("nav.scan"), description: t("nav.scan_desc"), icon: "/icons/sidebar/scan.svg" },
+      { key: "risk" as const, label: t("nav.findings"), description: t("nav.findings_desc"), icon: "/icons/sidebar/findings.svg" },
+      { key: "reports" as const, label: t("nav.reports"), description: t("nav.reports_desc"), icon: "/icons/sidebar/reports.svg" },
+      { key: "boundary" as const, label: t("nav.scope"), description: t("nav.scope_desc"), icon: "/icons/sidebar/scope.svg" },
+      { key: "history" as const, label: t("nav.history"), description: t("nav.history_desc"), icon: "/icons/sidebar/history.svg" },
+      { key: "advanced" as const, label: t("nav.console"), description: t("nav.console_desc"), icon: "/icons/rail/console.svg" },
+      { key: "settings" as const, label: t("nav.settings"), description: t("nav.settings_desc"), icon: "/icons/sidebar/settings.svg" },
     ],
     [t],
   );
@@ -290,7 +291,7 @@ export function App() {
   return (
     <AppShell
       activeView={activeView}
-      activeNavView={activeView === "advanced" ? "settings" : activeView}
+      activeNavView={activeView}
       nav={nav}
       meta={VIEW_META[activeView]}
       quickActions={quickActions}

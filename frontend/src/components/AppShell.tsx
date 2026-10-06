@@ -110,6 +110,7 @@ export function AppShell<T extends string>({
         <div className="view-mount">{children}</div>
       </main>
       <aside className="quick-rail" aria-label={t("shell.quick_actions")}>
+        <div className="rail-heading" aria-hidden="true">{t("shell.quick_actions")}</div>
         <div className="quick-rail-main">
           {quickActions.map((item) => (
             <button
@@ -122,7 +123,7 @@ export function AppShell<T extends string>({
               onClick={item.onClick}
             >
               <img className="rail-icon" src={item.icon} alt="" aria-hidden="true" />
-              <span className="rail-tooltip" aria-hidden="true">{item.label}</span>
+              <span className="rail-caption" aria-hidden="true">{item.label}</span>
             </button>
           ))}
         </div>

@@ -254,6 +254,17 @@ export function HomePage({ selectedTarget, activeTask, latestEvent, taskEvents, 
 
   return (
     <section className="home-page">
+      {!activeTask && (
+        <div className="home-guide" role="note">
+          <strong>{t("home.guide_title")}</strong>
+          <ol>
+            <li>{t("home.guide_step1")}</li>
+            <li>{t("home.guide_step2")}</li>
+            <li>{t("home.guide_step3")}</li>
+          </ol>
+          <p>{t("home.guide_note")}</p>
+        </div>
+      )}
       <div className="goby-home-board">
         <div className="goby-welcome-panel">
           <div className="goby-map-illustration" aria-hidden="true">

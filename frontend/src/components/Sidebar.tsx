@@ -72,7 +72,7 @@ export function Sidebar<T extends string>({ activeView, activeNavView = activeVi
             onClick={action.onClick}
           >
             <img className="rail-icon" src={action.icon} alt="" aria-hidden="true" />
-            <span className="rail-tooltip" aria-hidden="true">{action.label}</span>
+            <span className="rail-caption" aria-hidden="true">{action.label}</span>
           </button>
         ))}
       </div>

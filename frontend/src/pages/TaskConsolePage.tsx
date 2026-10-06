@@ -368,6 +368,7 @@ export function TaskConsolePage({
       <div className="split-grid inner-grid">
         <article className="card inset-card">
           <h4>{t("console.task_log")}</h4>
+          <p className="panel-hint">{t("console.task_log_hint")}</p>
           <div className="list list-scroll">
             {tasksQuery.data?.slice(0, 8).map((task) => (
               <button
@@ -393,6 +394,7 @@ export function TaskConsolePage({
 
         <article className="card inset-card">
           <h4>{t("console.live_events")}</h4>
+          <p className="panel-hint">{t("console.live_events_hint")}</p>
 
           <div className="feed-toolbar">
             <div className="feed-filters">
