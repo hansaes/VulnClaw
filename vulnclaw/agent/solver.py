@@ -44,6 +44,12 @@ if TYPE_CHECKING:
 
 
 _EVIDENCE_ID_RE = re.compile(r"\be\d{3,}\b", re.IGNORECASE)
+#: Consecutive LLM/tool failures tolerated before the solve loop gives up. The
+#: counter resets on any successful turn, so this only bites when the provider
+#: fails back-to-back. A flaky provider (intermittent request timeouts) trips a
+#: threshold of 3 far too often — at ~50% per-call failures that is a stopping
+#: probability near 12.5% per turn, which kills otherwise healthy runs.
+_MAX_CONSECUTIVE_LLM_ERRORS = 8
 _FINAL_MARKERS = ("FINAL:", "Final:", "final:", "DONE:", "[DONE]", "完成：", "最终结果：")
 _ASK_MARKERS = ("ASK_USER:", "Ask user:", "ask_user:", "需要用户：", "请用户确认：")
 _NO_PATH_MARKERS = ("NO_PATH:", "No viable path:", "无法继续：", "没有可继续验证的路径：")
@@ -637,7 +643,7 @@ async def _solve_impl(
             repeated_errors += 1
             reason = f"stopped after repeated LLM/tool errors: {exc}"
             emit("error", {"step": step, "error": str(exc)})
-            if repeated_errors >= 3:
+            if repeated_errors >= _MAX_CONSECUTIVE_LLM_ERRORS:
                 break
             continue
 
@@ -814,7 +820,7 @@ async def _solve_impl(
         reason = state.complete_reason
     elif needs_user and reason == "runaway safety budget reached":
         reason = "waiting for user input"
-    elif repeated_errors >= 3:
+    elif repeated_errors >= _MAX_CONSECUTIVE_LLM_ERRORS:
         reason = reason or "stopped after repeated errors"
 
     finalization_error = await finalize_parent(agent, state)

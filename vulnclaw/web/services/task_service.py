@@ -111,12 +111,15 @@ _STREAM_TEXT_LIMIT = 4000
 class _WebStreamSink:
     """StreamSink that forwards model output onto the Web task stream.
 
-    Runs that pass a sink use the streaming call path, which keeps the provider
-    connection alive token-by-token. On the non-streaming path the gateway must
-    wait for the whole completion, and long reasoning turns regularly exceed
-    that deadline — the logged ``LLM 连接异常 (Request timed out.)`` retry
-    storms come from exactly that. Deltas are batched so the event stream and
-    the persisted task state are not rewritten once per token.
+    Runs that pass a sink use the streaming call path, so the console receives
+    reasoning, content and tool deltas while a turn is still generating instead
+    of only after it finishes. Deltas are batched so the event stream and the
+    persisted task state are not rewritten once per token.
+
+    Note: this is a visibility change, not a reliability fix. The intermittent
+    provider timeouts seen here hit the streaming and non-streaming paths alike
+    (measured 5/10 vs 6/10 call failures at a fixed ~16-19s), so the retry
+    tolerance in ``vulnclaw.agent.solver`` is what keeps runs alive.
     """
 
     def __init__(self, manager: WebTaskManager, task_id: str) -> None:
