@@ -18,16 +18,16 @@ export function ToastHost({ toasts, onDismiss }: ToastHostProps) {
   if (!toasts.length) return null;
 
   return (
-    <div className="toast-host" aria-live="polite" aria-relevant="additions removals">
+    <div className="vw-toast-host" aria-live="polite" aria-relevant="additions removals">
       {toasts.map((toast) => (
-        <article key={toast.id} className={`toast toast-${toast.tone}`}>
-          <div>
-            <strong>{toast.title}</strong>
-            {toast.copy && <p>{toast.copy}</p>}
+        <article key={toast.id} className={`vw-toast vw-toast-${toast.tone}`}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="tt">{toast.title}</div>
+            {toast.copy && <div className="tc">{toast.copy}</div>}
             {toast.actionLabel && toast.onAction && (
               <button
                 type="button"
-                className="toast-action-btn"
+                className="vw-toast-action"
                 onClick={() => {
                   toast.onAction?.();
                   onDismiss(toast.id);
@@ -37,8 +37,8 @@ export function ToastHost({ toasts, onDismiss }: ToastHostProps) {
               </button>
             )}
           </div>
-          <button type="button" className="toast-close-btn" aria-label="Close notification" onClick={() => onDismiss(toast.id)}>
-            x
+          <button type="button" className="vw-toast-close" aria-label="Close notification" onClick={() => onDismiss(toast.id)}>
+            ✕
           </button>
         </article>
       ))}

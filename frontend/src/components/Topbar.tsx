@@ -1,37 +1,35 @@
 import { useT } from "../i18n";
-import { StatusDot } from "./StatusDot";
 import { formatTaskStatus } from "../utils/taskLabels";
 
 interface TopbarProps {
-  eyebrow: string;
-  title: string;
-  copy: string;
-  selectedTarget: string | null;
-  activeTaskStatus?: string;
+  crumb: string;
+  taskRunning: boolean;
+  taskStatus?: string | null;
+  targetCount?: number;
 }
 
-function statusTone(status?: string): "idle" | "ok" | "warn" | "danger" | "running" {
-  if (status === "running" || status === "pending") return "running";
-  if (status === "completed") return "ok";
-  if (status === "failed") return "danger";
-  if (status === "stopped") return "warn";
-  return "idle";
-}
-
-export function Topbar({ eyebrow, title, copy, selectedTarget, activeTaskStatus }: TopbarProps) {
+export function Topbar({ crumb, taskRunning, taskStatus, targetCount }: TopbarProps) {
   const { t } = useT();
-  const targetLabel = selectedTarget ? t("topbar.target", { target: selectedTarget }) : t("topbar.no_target");
 
   return (
-    <header className="topbar">
-      <div>
-        <div className="topbar-eyebrow">{eyebrow}</div>
-        <h2>{title}</h2>
-        <p>{copy}</p>
-      </div>
-      <div className="topbar-status">
-        <StatusDot tone={statusTone(activeTaskStatus)} label={activeTaskStatus ? formatTaskStatus(activeTaskStatus) : t("topbar.idle")} />
-        <StatusDot tone={selectedTarget ? "ok" : "idle"} label={targetLabel} />
+    <header className="vw-topbar">
+      <button
+        type="button"
+        className="vw-icon-btn vw-hamb"
+        aria-label={t("shell.menu")}
+        onClick={() => document.getElementById("vw-sidebar")?.classList.toggle("open")}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 6h18M3 12h18M3 18h18" /></svg>
+      </button>
+      <div className="vw-crumb">VulnClaw / <b>{crumb}</b></div>
+      <div className="vw-topbar-right">
+        {typeof targetCount === "number" && (
+          <span className="vw-badge vw-b-done">{t("topbar.targets", { count: String(targetCount) })}</span>
+        )}
+        <span className={`vw-badge ${taskRunning ? "vw-b-run" : "vw-b-done"}`}>
+          {taskRunning && <span className="dot" />}
+          {taskStatus ? formatTaskStatus(taskStatus) : t("topbar.idle")}
+        </span>
       </div>
     </header>
   );
