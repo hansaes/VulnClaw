@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ── LLM Provider Presets ────────────────────────────────────────────
 
@@ -147,6 +147,19 @@ class ModelProfileConfig(BaseModel):
     model: str = Field(default="", max_length=160)
     base_url: str = Field(default="", max_length=512)
     api_key: str = Field(default="", max_length=512)
+    role: str = Field(
+        default="both",
+        description="Dual-model role: 'thinking' (reasoning/planning/distillation), "
+        "'execution' (main agent tool loop), or 'both'.",
+    )
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, value: str) -> str:
+        value = (value or "both").strip().lower()
+        if value not in ("thinking", "execution", "both"):
+            raise ValueError("role must be one of: thinking, execution, both")
+        return value
 
 
 class LLMConfig(BaseModel):
@@ -199,6 +212,21 @@ class LLMConfig(BaseModel):
         default="",
         description="ID of the active model profile (empty = manual llm.* values).",
     )
+    # ── Dual-model (thinking + execution) ──────────────────────────────
+    # When enabled, reasoning-heavy auxiliary calls (run distillation /
+    # lesson summarisation, i.e. the "thinking" workload) use the thinking
+    # model below, while the main agent tool loop keeps using the live
+    # llm.* fields (the "execution" model). The main loop performs reasoning
+    # and tool calls inside a single chat-completions call, so it cannot be
+    # split across two models without redesigning the loop.
+    dual_model_enabled: bool = Field(
+        default=False,
+        description="Route thinking workloads to llm.thinking_* instead of the execution model.",
+    )
+    thinking_provider: str = Field(default="", description="Thinking model provider name")
+    thinking_model: str = Field(default="", description="Thinking model name")
+    thinking_base_url: str = Field(default="", description="Thinking model API base URL")
+    thinking_api_key: str = Field(default="", description="Thinking model static API key")
     website_url: str = Field(
         default="",
         description="Provider's official site or console, seeded from the provider preset "
@@ -226,6 +254,34 @@ class LLMConfig(BaseModel):
         """Return the first usable static API key, or an empty string if none."""
         pool = self.key_pool()
         return pool[0] if pool else ""
+
+    def thinking_configured(self) -> bool:
+        """Whether a usable thinking model is configured for dual-model mode."""
+        return bool(
+            self.dual_model_enabled
+            and (self.thinking_model or "").strip()
+            and (self.thinking_api_key or "").strip()
+        )
+
+    def thinking_view(self) -> Any:
+        """Return a duck-typed LLM-config view backed by the thinking model.
+
+        Only the attributes consumed by ``build_chat_completion_kwargs`` /
+        ``_response_format_attempts`` (provider, model, max_tokens,
+        temperature, reasoning_effort) are provided; anything else falls back
+        to the execution config values where sensible.
+        """
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            provider=self.thinking_provider or self.provider,
+            model=self.thinking_model,
+            base_url=self.thinking_base_url or self.base_url,
+            api_key=self.thinking_api_key,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            reasoning_effort=self.reasoning_effort,
+        )
 
 
 class MCPTransportConfig(BaseModel):

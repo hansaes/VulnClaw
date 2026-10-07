@@ -266,11 +266,19 @@ def _rejects_response_format(exc: Exception) -> bool:
 
 
 def configured_distiller(config: Any) -> OpenAIStructuredDistiller:
-    """Build a direct distiller client for `vulnclaw learn` and background work."""
+    """Build a direct distiller client for `vulnclaw learn` and background work.
 
-    from vulnclaw.config.settings import make_openai_client
+    Distillation (summarising a finished run into lessons) is a pure
+    reasoning workload, so in dual-model mode it runs on the thinking model
+    when one is configured; otherwise it falls back to the execution model.
+    """
+
+    from vulnclaw.config.settings import make_openai_client, make_thinking_client
     from vulnclaw.config.token_provider import resolve_llm_token
 
+    thinking_client = make_thinking_client(config)
+    if thinking_client is not None:
+        return OpenAIStructuredDistiller(thinking_client, config.llm.thinking_view())
     client = make_openai_client(
         api_key=resolve_llm_token(config.llm) or "placeholder",
         base_url=config.llm.base_url,

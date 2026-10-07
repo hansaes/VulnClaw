@@ -19,9 +19,11 @@ from vulnclaw.web.auth import (
 from vulnclaw.web.schemas import (
     ChatMessageRequest,
     ConfigUpdateRequest,
+    DualModelRequest,
     LessonCreateRequest,
     LoginRequest,
     ModelProfileRequest,
+    ModelProfileRoleRequest,
     ProviderModelsRequest,
     ReportGenerateRequest,
     TaskCreateRequest,
@@ -42,6 +44,8 @@ from vulnclaw.web.services.model_profile_service import (
     create_model_profile,
     delete_model_profile,
     list_model_profiles,
+    set_dual_model_enabled,
+    set_profile_role,
     update_model_profile,
 )
 from vulnclaw.web.services.provider_service import fetch_models, get_provider_presets
@@ -328,6 +332,20 @@ def create_app():
         if not profile:
             raise HTTPException(status_code=404, detail="Model profile not found")
         return profile
+
+    @app.patch("/api/model-profiles/{profile_id}/role")
+    async def model_profile_role(profile_id: str, request: ModelProfileRoleRequest):
+        try:
+            profile = set_profile_role(profile_id, request.role)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not profile:
+            raise HTTPException(status_code=404, detail="Model profile not found")
+        return profile
+
+    @app.post("/api/model-profiles/dual-model")
+    async def model_profiles_dual_model(request: DualModelRequest):
+        return set_dual_model_enabled(request.enabled)
 
     @app.get("/api/config")
     async def config_view():

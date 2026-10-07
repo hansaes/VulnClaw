@@ -167,11 +167,16 @@ class _WebStreamSink:
     def on_tool_call(self, tool_name: str, args: str) -> None:
         self.flush()
         self._manager.publish(
-            self._task_id, "agent_tool", {"tool": str(tool_name), "args": str(args)[:300]}
+            self._task_id, "agent_tool", {"tool": str(tool_name), "args": str(args)[:1000]}
         )
 
     def on_tool_result(self, result_summary: str) -> None:
         self.flush()
+        text = str(result_summary or "").strip()
+        if text:
+            self._manager.publish(
+                self._task_id, "agent_tool_result", {"result": text[:1500]}
+            )
 
     def on_stream_end(self) -> None:
         self.flush()

@@ -115,6 +115,28 @@ def make_openai_client(api_key: str, base_url: str, timeout: float | None = None
         raise
 
 
+def make_thinking_client(config: Any):
+    """Build an OpenAI-compatible client for the dual-model thinking model.
+
+    Returns ``None`` when dual-model mode is off or no thinking model is
+    configured; callers fall back to the execution model client.
+    """
+    llm = getattr(config, "llm", None)
+    if llm is None:
+        return None
+    thinking_configured = getattr(llm, "thinking_configured", None)
+    if callable(thinking_configured):
+        if not thinking_configured():
+            return None
+    elif not (getattr(llm, "dual_model_enabled", False) and (getattr(llm, "thinking_model", "") or "").strip()):
+        return None
+    api_key = (getattr(llm, "thinking_api_key", "") or "").strip()
+    if not api_key:
+        return None
+    base_url = (getattr(llm, "thinking_base_url", "") or "").strip() or getattr(llm, "base_url", "")
+    return make_openai_client(api_key=api_key, base_url=base_url)
+
+
 # ── Load / Save ────────────────────────────────────────────────────
 
 

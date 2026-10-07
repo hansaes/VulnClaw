@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { rollbackTarget, stopTask } from "../api/web";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { ProcessTimeline } from "../components/ProcessTimeline";
 import { useTargetSnapshotsQuery, useTargetsQuery } from "../hooks/queries";
 import { useT, type TFunction } from "../i18n";
 import type { TaskEvent, TaskRecord } from "../types/api";
@@ -14,6 +15,44 @@ import {
 } from "../utils/taskLabels";
 
 type EventFilter = "all" | "key";
+
+type LogView = "process" | "log";
+
+export type TimelineItem =
+  | { kind: "step"; key: string; timestamp: string; step: number | null; reason: string; tools: string[]; evidence: string }
+  | { kind: "tool"; key: string; timestamp: string; tool: string; args: string }
+  | { kind: "result"; key: string; timestamp: string; result: string }
+  | { kind: "status"; key: string; timestamp: string; text: string; tone: string };
+
+/** 把原始事件流整理成「执行过程」时间线：思考 → 工具调用 → 工具结果 → 步骤结论。*/
+function buildTimeline(list: TaskEvent[]): TimelineItem[] {
+  const items: TimelineItem[] = [];
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  list.forEach((e, i) => {
+    const key = `${e.timestamp}-${e.event}-${i}`;
+    const p = (e.payload ?? {}) as Record<string, unknown>;
+    if (e.event === "agent_stream") return; // token 碎片太吵，时间线里跳过（原始日志可看）
+    if (e.event === "agent_observation") {
+      const tools = Array.isArray(p.tools) ? p.tools.filter((x): x is string => typeof x === "string" && x.length > 0) : [];
+      items.push({
+        kind: "step", key, timestamp: e.timestamp,
+        step: typeof p.step === "number" ? p.step : null,
+        reason: str(p.reason), tools, evidence: str(p.evidence),
+      });
+      return;
+    }
+    if (e.event === "agent_tool") {
+      items.push({ kind: "tool", key, timestamp: e.timestamp, tool: str(p.tool), args: str(p.args) });
+      return;
+    }
+    if (e.event === "agent_tool_result") {
+      items.push({ kind: "result", key, timestamp: e.timestamp, result: str(p.result) });
+      return;
+    }
+    items.push({ kind: "status", key, timestamp: e.timestamp, text: eventText(e), tone: formatEventTone(e.event) });
+  });
+  return items;
+}
 
 const KEY_EVENT_KINDS = new Set([
   "error", "ask_user", "ask_user_rejected", "no_path", "no_path_rejected",
@@ -84,6 +123,7 @@ export function TaskConsolePage({ activeTask, events, tasks, onSelectTask, onNew
   const queryClient = useQueryClient();
   const [followFeed, setFollowFeed] = useState(true);
   const [eventFilter, setEventFilter] = useState<EventFilter>("all");
+  const [logView, setLogView] = useState<LogView>("process");
   const [search, setSearch] = useState("");
   const [stopOpen, setStopOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,8 +142,10 @@ export function TaskConsolePage({ activeTask, events, tasks, onSelectTask, onNew
 
   const feedEvents = useMemo(() => {
     const q = search.toLowerCase();
+    // 执行过程视图下固定看全部事件（关键事件过滤会把步骤筛掉）
+    const effFilter = logView === "process" ? "all" : eventFilter;
     const filtered = events
-      .filter((e) => matchesFilter(e, eventFilter))
+      .filter((e) => matchesFilter(e, effFilter))
       .filter((e) => !q || eventText(e).toLowerCase().includes(q) || e.event.toLowerCase().includes(q));
     // Fold consecutive model-output deltas into one growing line, so streamed
     // text reads as prose instead of one fragment per token batch.
@@ -127,7 +169,9 @@ export function TaskConsolePage({ activeTask, events, tasks, onSelectTask, onNew
       }
     }
     return merged.slice(-200);
-  }, [events, eventFilter, search]);
+  }, [events, eventFilter, logView, search]);
+
+  const timelineItems = useMemo(() => buildTimeline(feedEvents), [feedEvents]);
 
   // Sub-agent view: latest state per agent plus per-group member progress.
   const subagents = useMemo(() => {
@@ -337,10 +381,28 @@ export function TaskConsolePage({ activeTask, events, tasks, onSelectTask, onNew
                   {t("detail.live_log")}
                 </div>
                 <div className="ctl">
-                  <select className="vw-input" value={eventFilter} onChange={(e) => setEventFilter(e.target.value as EventFilter)}>
-                    <option value="all">{t("detail.filter_all")}</option>
-                    <option value="key">{t("detail.filter_key")}</option>
-                  </select>
+                  <div className="vw-seg" role="tablist" aria-label={t("detail.live_log")}>
+                    <button
+                      type="button" role="tab" aria-selected={logView === "process"}
+                      className={logView === "process" ? "on" : ""}
+                      onClick={() => setLogView("process")}
+                    >
+                      {t("detail.view_process")}
+                    </button>
+                    <button
+                      type="button" role="tab" aria-selected={logView === "log"}
+                      className={logView === "log" ? "on" : ""}
+                      onClick={() => setLogView("log")}
+                    >
+                      {t("detail.view_log")}
+                    </button>
+                  </div>
+                  {logView === "log" && (
+                    <select className="vw-input" value={eventFilter} onChange={(e) => setEventFilter(e.target.value as EventFilter)}>
+                      <option value="all">{t("detail.filter_all")}</option>
+                      <option value="key">{t("detail.filter_key")}</option>
+                    </select>
+                  )}
                   <input className="vw-input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("detail.search_ph")} />
                   <button type="button" className="vw-btn vw-btn-ghost vw-btn-xs" onClick={() => setFollowFeed((v) => !v)} title={t("detail.follow_hint")}>
                     {t("detail.follow")}{followFeed ? t("detail.on") : t("detail.off")}
@@ -358,6 +420,15 @@ export function TaskConsolePage({ activeTask, events, tasks, onSelectTask, onNew
               >
                 <div className="ln"><span className="ts">{formatTime(activeTask.created_at)}</span> <span className="dim">{t("detail.log_task", { id: activeTask.task_id.slice(0, 8) })}</span></div>
                 <div className="ln"><span className="ts">{formatTime(activeTask.created_at)}</span> <span className="dim">{t("detail.log_target", { target: activeTask.target })}</span></div>
+                {logView === "process" ? (
+                  <>
+                    <ProcessTimeline items={timelineItems} expandedRows={expandedRows} onToggle={(key) => setExpandedRows((p) => ({ ...p, [key]: !p[key] }))} />
+                    {timelineItems.length === 0 && (
+                      <div className="vw-tl-empty"><span className="dim">{t("detail.no_process_events")}</span></div>
+                    )}
+                  </>
+                ) : (
+                <>
                 {feedEvents.map((item, i) => {
                   const key = `${item.timestamp}-${item.event}-${i}`;
                   const tone = formatEventTone(item.event);
@@ -383,6 +454,8 @@ export function TaskConsolePage({ activeTask, events, tasks, onSelectTask, onNew
                   );
                 })}
                 {!feedEvents.length && <div className="ln"><span className="dim">{t("detail.no_events")}</span></div>}
+                </>
+                )}
               </div>
               <div className="vw-term-foot">
                 <span>{t("detail.events_count", { count: String(feedEvents.length) })}</span>

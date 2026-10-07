@@ -145,6 +145,63 @@ def seed_knowledge_base(store: KnowledgeStore) -> None:
                 "通配符: /bin/ca? /etc/pas?d",
             ],
         },
+        {
+            "id": "evidence-first-methodology",
+            "title": "Evidence-First 证据链方法论",
+            "description": "漏洞发现必须走 Signal→Hypothesis→Controlled Test→Differential Evidence→Impact→Finding 链路；confidence 分级 confirmed/high/medium/suspected/rejected，正式报告只允许 confirmed。",
+            "tags": ["methodology", "evidence", "verification", "web"],
+            "method": [
+                "每个漏洞结论 = 一段可复现的流量 + 一段可观察的副作用证据",
+                "差分证据：SQLi盲(真延时+假条件+基线)/IDOR(自己200+他人200+不存在404)/越权(403+200+绕过200)/SSRF(拒绝+允许+外带)",
+                "进入验证模式先假设是误报，直到独立证据证伪",
+                "验证即 PoC 合并：验证动作本身就是最小 PoC 时直接记为 reproduction 证据",
+                "复现率：P0 100%(≥3次)/P1 95%+(≥3次)/逻辑漏洞 90%+(≥5次)，不足如实说明",
+            ],
+            "anti_patterns": [
+                "看到 500+syntax error 就报 SQLi（可能只是类型不匹配）",
+                "单次延时差异报时间盲注（需多次对照排除抖动）",
+                "输入回显当成 XSS（可能在 textarea/已转义上下文）",
+                "没有 PoC 的理论漏洞",
+            ],
+        },
+        {
+            "id": "bughunter-report-patterns",
+            "title": "BugBounty 报告模式（24 类漏洞）",
+            "description": "基于 681 份已披露 HackerOne 报告提炼的漏洞模式：每类漏洞的标准测试入口、差分验证法与报告要点。",
+            "tags": ["bugbounty", "report", "methodology", "web"],
+            "patterns": [
+                "IDOR：双账号对照（A 读 B 资源 200 + B 读自己 200 + 不存在资源 404），仅取 1 条脱敏样本",
+                "SSRF：内网拒绝基线 + 内网允许 + DNSLog 外带三段证据",
+                "XSS：确认可执行上下文（弹窗/DNSLog 回调），不只看回显",
+                "逻辑漏洞：正常流程 vs 篡改流程 + 真实副作用（订单/状态真的变了）",
+                "报告标题格式：[等级][条件][类型] 端点 - 一句话",
+            ],
+        },
+        {
+            "id": "wooyun-sqli-stats",
+            "title": "WooYun SQL 注入统计方法论",
+            "description": "基于 27732 个 SQL 注入案例统计：高频注入参数、注入点 URL 模式、数据库指纹判断流程。",
+            "tags": ["sqli", "statistics", "web"],
+            "method": [
+                "优先测试高频注入参数（id、search、keyword、page 类参数命中率最高）",
+                "高危 URL 模式：列表/详情页、搜索功能、管理后台、API 接口",
+                "数据库指纹：报错信息 → 函数差异 → 版本特征，自动化判断流程",
+                "注入按栈和差分面选探针，禁止对每个 path 机械喷单引号",
+            ],
+        },
+        {
+            "id": "osint-arsenal",
+            "title": "OSINT 探测弹药库",
+            "description": "高价值探测路径：Swagger/GraphQL 发现、常开高危路径、JS 端点提取正则、子域名接管指纹、云存储桶排列。",
+            "tags": ["osint", "recon", "web"],
+            "method": [
+                "API 文档：swagger.json/ui、api-docs、v2/v3 api-docs、graphql/graphiql（introspection 无鉴权=HIGH）",
+                "常开路径：/.git/config、/.env、/actuator/env、/actuator/heapdump、/phpinfo.php、/server-status",
+                "JS 端点提取三级正则：通用引号路径 → API 特征路径 → 全限定 URL",
+                "子域名接管：CNAME 指向 github.io/herokuapp/s3 等 + 特征响应判定",
+                "云存储桶：前缀 backup-/assets-/static-/dev-/prod- × 后缀 -backup/-bak/-old 排列探测",
+            ],
+        },
     ]
 
     for tech in techniques:
