@@ -790,4 +790,24 @@ BUILTIN_MCP_SERVERS: dict[str, dict[str, Any]] = {
             "url": "https://mcp.scanmalware.com/mcp",
         },
     },
+    # HexStrike AI (MIT, https://github.com/0x4m4/hexstrike-ai): 150+ offensive
+    # security tools exposed as MCP tools (nmap, nuclei, sqlmap, ffuf, amass,
+    # subfinder, nikto, rustscan, enum4linux, …). Disabled by default because it
+    # requires a local install: run vulnclaw/mcp/setup_hexstrike.sh once, which
+    # clones the repo into ~/.vulnclaw/hexstrike and installs its venv. The
+    # security tool binaries themselves (nmap, nuclei, …) must also be present.
+    # Override transport.args in your config file if you installed elsewhere.
+    "hexstrike": {
+        "name": "hexstrike",
+        "enabled": False,
+        "priority": 1,
+        "description": "HexStrike AI: 150+ security tools via MCP (nmap, nuclei, sqlmap, ffuf, amass, …). Requires setup_hexstrike.sh install.",
+        "transport": {
+            "type": "stdio",
+            "command": "python3",
+            "args": ["~/.vulnclaw/hexstrike/hexstrike_mcp.py"],
+            "startup_timeout": 60000,
+            "tool_timeout": 600000,
+        },
+    },
 }

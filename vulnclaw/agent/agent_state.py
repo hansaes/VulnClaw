@@ -183,6 +183,8 @@ class EvidenceRecord(BaseModel):
     content_hash: str = ""
     duplicate_of: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    #: Flags detected in this tool output (E12 per-turn flag patrol).
+    flags: list[str] = Field(default_factory=list)
 
     @property
     def size(self) -> int:
@@ -445,6 +447,7 @@ class AgentState(BaseModel):
             fingerprint=digest,
             content_hash=content_hash,
             duplicate_of=duplicate_of,
+            flags=extract_flags(raw),
         )
         self.evidence.append(record)
         if len(self.evidence) > MAX_STORED_EVIDENCE:

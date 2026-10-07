@@ -1281,6 +1281,42 @@ async def execute_mcp_tool(agent: AgentContext, tool_name: str, args: dict[str, 
     if tool_name == "python_execute":
         return await execute_python(agent, args)
 
+    if tool_name == "hypothesis_add":
+        return _execute_hypothesis_add(agent, args)
+
+    if tool_name == "hypothesis_test":
+        return _execute_hypothesis_test(agent, args)
+
+    if tool_name == "hypothesis_list":
+        return _execute_hypothesis_list(agent)
+
+    if tool_name == "get_script_template":
+        return _execute_get_script_template(args)
+
+    if tool_name == "roi_gate_mark":
+        return _execute_roi_gate_mark(agent, args)
+
+    if tool_name == "roi_gate_list":
+        return _execute_roi_gate_list(agent)
+
+    if tool_name == "classify_challenge":
+        return _execute_classify_challenge(args)
+
+    if tool_name == "map_vuln":
+        return _execute_map_vuln(args)
+
+    if tool_name == "web_opening_checklist":
+        return _execute_web_opening_checklist()
+
+    if tool_name == "crypto_rsa_tree":
+        return _execute_crypto_rsa_tree()
+
+    if tool_name == "detect_encoding":
+        return _execute_detect_encoding(args)
+
+    if tool_name == "filter_fingerprint_plan":
+        return _execute_filter_fingerprint_plan(args)
+
     if tool_name == "load_skill_reference":
         try:
             from vulnclaw.skills.loader import load_skill_reference
@@ -2219,6 +2255,187 @@ def _write_python_audit(
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception:
         return
+
+
+# ── Hypothesis tracker tools (E4/E5) ─────────────────────────────────
+
+
+def _get_hypothesis_tracker(agent: AgentContext) -> Any:
+    """Get or create the per-session hypothesis tracker."""
+    from vulnclaw.agent.hypothesis import HypothesisTracker
+
+    tracker = getattr(agent, "_hypothesis_tracker", None)
+    if tracker is None:
+        tracker = HypothesisTracker()
+        agent._hypothesis_tracker = tracker
+    # Opportunistic stale sweep on every access.
+    for hyp in tracker.sweep_stale():
+        pass
+    return tracker
+
+
+def _execute_hypothesis_add(agent: AgentContext, args: dict[str, Any]) -> str:
+    tracker = _get_hypothesis_tracker(agent)
+    title = str(args.get("title", "")).strip()
+    if not title:
+        return "[!] hypothesis_add requires a title"
+    hyp = tracker.add(
+        title,
+        description=str(args.get("description", "")),
+        test_plan=str(args.get("test_plan", "")),
+    )
+    return f"[hypothesis {hyp.id} registered] {hyp.title}\nTest plan: {hyp.test_plan or '(not specified)'}\nCircuit breaker: {3} failed tests or 20 min idle → auto-abandon."
+
+
+def _execute_hypothesis_test(agent: AgentContext, args: dict[str, Any]) -> str:
+    tracker = _get_hypothesis_tracker(agent)
+    hid = str(args.get("id", "")).strip()
+    hyp = tracker.get(hid)
+    if hyp is None:
+        return f"[!] unknown hypothesis id: {hid}"
+    success = bool(args.get("success", False))
+    tracker.note_test(
+        hid,
+        success=success,
+        note=str(args.get("note", "")),
+        evidence_id=str(args.get("evidence_id", "")),
+    )
+    if hyp.status == "abandoned":
+        return (
+            f"[hypothesis {hid} AUTO-ABANDONED] {hyp.title}\n"
+            f"Reason: {hyp.notes[-1] if hyp.notes else 'circuit breaker'}\n"
+            f"Reopen condition: {hyp.reopen_condition}\n"
+            "→ Back to recon: pick the next lead."
+        )
+    if success:
+        return f"[hypothesis {hid} progressing] strikes reset to 0."
+    return f"[hypothesis {hid} strike {hyp.strikes}/3] {hyp.title}"
+
+
+def _execute_hypothesis_list(agent: AgentContext) -> str:
+    tracker = _get_hypothesis_tracker(agent)
+    return "[hypotheses]\n" + tracker.summary()
+
+
+def _execute_get_script_template(args: dict[str, Any]) -> str:
+    from vulnclaw.agent.script_templates import get_template, list_templates
+
+    kind = str(args.get("kind", "")).strip().lower()
+    source = get_template(kind)
+    if source is None:
+        return f"[!] unknown template kind: {kind}\n{list_templates()}"
+    return (
+        f"[script template: {kind}]\n"
+        "Fill in ONLY the FILL-IN sections, then run with python_execute. "
+        "The script must be idempotent (re-running reproduces the result).\n\n"
+        + source
+    )
+
+
+# ── ROI gate tools (E6) ─────────────────────────────────────────
+
+
+def _get_roi_tracker(agent: AgentContext) -> Any:
+    from vulnclaw.agent.roi_gates import ROIGateTracker
+
+    tracker = getattr(agent, "_roi_gate_tracker", None)
+    if tracker is None:
+        tracker = ROIGateTracker()
+        agent._roi_gate_tracker = tracker
+    return tracker
+
+
+def _execute_roi_gate_mark(agent: AgentContext, args: dict[str, Any]) -> str:
+    tracker = _get_roi_tracker(agent)
+    gid = str(args.get("id", "")).strip()
+    status = str(args.get("status", "")).strip().lower()
+    gate = tracker.mark(gid, status, note=str(args.get("note", "")),
+                        evidence_id=str(args.get("evidence_id", "")))
+    if gate is None:
+        return f"[!] unknown gate id or bad status: {gid}/{status}"
+    pending = tracker.pending()
+    if not pending:
+        return f"[gate {gid} → {status}] All 5 high-ROI gates resolved. Recon may complete."
+    return (f"[gate {gid} → {status}] {gate.title}\n"
+            f"Still pending: {', '.join(g.id for g in pending)}")
+
+
+def _execute_roi_gate_list(agent: AgentContext) -> str:
+    return _get_roi_tracker(agent).summary()
+
+
+# ── CTF P0 tools ────────────────────────────────────────────────
+
+
+def _execute_classify_challenge(args: dict[str, Any]) -> str:
+    from vulnclaw.agent.challenge_classifier import classify_challenge, opening_flow
+
+    result = classify_challenge(
+        files=args.get("files") or [],
+        description=str(args.get("description", "")),
+        target=str(args.get("target", "")),
+        has_remote=bool(args.get("has_remote", False)),
+    )
+    lines = [
+        f"[challenge classification] category={result['category']} "
+        f"confidence={result['confidence']}",
+        "votes: " + ("; ".join(result["votes"]) if result["votes"] else "(none)"),
+    ]
+    if result.get("reason"):
+        lines.append(f"reason: {result['reason']}")
+    if result["needs_llm"]:
+        lines.append("⚠️ low confidence or ambiguous → confirm category with reasoning before proceeding")
+    lines.append("\n[opening flow]")
+    lines.extend(f"{i+1}. {step}" for i, step in enumerate(opening_flow(result["category"])))
+    return "\n".join(lines)
+
+
+def _execute_map_vuln(args: dict[str, Any]) -> str:
+    from vulnclaw.agent.vuln_mapping import ROI_ORDER, map_function_to_vuln
+
+    target = str(args.get("url_or_param", ""))
+    hits = map_function_to_vuln(target)
+    if not hits:
+        return (f"[vuln mapping] no function-semantic match for: {target}\n"
+                f"Fall back to ROI order: {' > '.join(ROI_ORDER)}")
+    lines = [f"[vuln mapping] {target}"]
+    for h in hits:
+        lines.append(f"  P{h['priority']} {h['vuln']}: {h['note']}")
+    lines.append("Test in priority order, 3 payload variants each, then move on (circuit breaker).")
+    return "\n".join(lines)
+
+
+def _execute_web_opening_checklist() -> str:
+    from vulnclaw.agent.vuln_mapping import opening_checklist_text
+
+    return opening_checklist_text()
+
+
+def _execute_crypto_rsa_tree() -> str:
+    from vulnclaw.agent.crypto_router import XOR_PLAYBOOK, rsa_tree_text
+
+    return rsa_tree_text() + "\n\n" + XOR_PLAYBOOK
+
+
+def _execute_detect_encoding(args: dict[str, Any]) -> str:
+    from vulnclaw.agent.crypto_router import detect_encoding
+
+    text = str(args.get("text", ""))
+    if not text.strip():
+        return "[!] detect_encoding requires text"
+    hits = detect_encoding(text)
+    if not hits:
+        return "[encoding] no common encoding detected (tried base64/hex/rot/reversed)"
+    lines = ["[encoding hits]"]
+    for h in hits:
+        lines.append(f"  {h['encoding']}: {h['decoded'][:120]}")
+    return "\n".join(lines)
+
+
+def _execute_filter_fingerprint_plan(args: dict[str, Any]) -> str:
+    from vulnclaw.agent.filter_fingerprint import fingerprint_plan
+
+    return fingerprint_plan(str(args.get("param_name", "input")))
 
 
 async def execute_python(agent: AgentContext, args: dict[str, Any]) -> str:

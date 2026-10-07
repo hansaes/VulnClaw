@@ -24,6 +24,7 @@ from vulnclaw.web.schemas import (
     LoginRequest,
     ModelProfileRequest,
     ModelProfileRoleRequest,
+    ProviderModelsPreviewRequest,
     ProviderModelsRequest,
     ReportGenerateRequest,
     TaskCreateRequest,
@@ -48,7 +49,7 @@ from vulnclaw.web.services.model_profile_service import (
     set_profile_role,
     update_model_profile,
 )
-from vulnclaw.web.services.provider_service import fetch_models, get_provider_presets
+from vulnclaw.web.services.provider_service import fetch_models, get_provider_presets, preview_models
 from vulnclaw.web.services.report_service import (
     generate_target_report,
     list_reports,
@@ -370,6 +371,15 @@ def create_app():
     @app.post("/api/provider-models")
     async def provider_models_view(request: ProviderModelsRequest):
         return fetch_models(request).model_dump(mode="json")
+
+    @app.post("/api/provider-models/preview")
+    async def provider_models_preview(request: ProviderModelsPreviewRequest):
+        import asyncio
+
+        result = await asyncio.to_thread(
+            preview_models, request.api_key, request.base_url or "", request.provider
+        )
+        return result.model_dump(mode="json")
 
     @app.get("/api/tasks")
     async def tasks():

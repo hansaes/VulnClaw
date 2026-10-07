@@ -891,4 +891,216 @@ def append_builtin_tool_schemas(
             },
         }
     )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "hypothesis_add",
+                "description": (
+                    "Register an investigation lead (hypothesis): 'this looks like X because Y'. "
+                    "Use for every promising lead from recon — e.g. 'admin panel on :8080 may have "
+                    "default creds', 'parameter id looks injectable'. The tracker enforces a circuit "
+                    "breaker: 3 failed tests or 20 min without progress auto-abandons it."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "One-line lead, e.g. 'SQLi in /search?q='."},
+                        "description": {"type": "string", "description": "Why this looks promising (evidence so far)."},
+                        "test_plan": {"type": "string", "description": "How you plan to test it."},
+                    },
+                    "required": ["title"],
+                },
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "hypothesis_test",
+                "description": (
+                    "Record one test of a hypothesis. success=true resets the strike counter; "
+                    "success=false adds a strike (3 strikes auto-abandons). Always call after testing a lead."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": "Hypothesis id, e.g. 'h01'."},
+                        "success": {"type": "boolean", "description": "Did the test move the lead forward?"},
+                        "note": {"type": "string", "description": "What happened in this test."},
+                        "evidence_id": {"type": "string", "description": "Evidence id supporting the test (optional)."},
+                    },
+                    "required": ["id", "success"],
+                },
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "hypothesis_list",
+                "description": (
+                    "List all hypotheses with status (active/testing/confirmed/abandoned). "
+                    "Abandoned ones keep their reopen condition — check them when new evidence arrives."
+                ),
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "get_script_template",
+                "description": (
+                    "Get a deterministic exploit/scan script skeleton (pwn, web, scan, crypto). "
+                    "Fill in ONLY the marked FILL-IN sections instead of writing from scratch — "
+                    "template-first succeeds an order of magnitude more often. Then run with python_execute."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "description": "Template kind: pwn (pwntools exploit), web (requests PoC), scan (port/banner scanner), crypto.",
+                        },
+                    },
+                    "required": ["kind"],
+                },
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "roi_gate_mark",
+                "description": (
+                    "Mark a high-ROI mandatory gate as passed/failed/na. These 5 gates "
+                    "(dual-account IDOR, unauth sensitive endpoints, default creds, "
+                    "GraphQL introspection, dev/staging env) must ALL be resolved before "
+                    "recon is complete. Fastest path to confirmed findings — do them early."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "Gate id: idor-dual-account, unauth-sensitive, default-creds, graphql-introspection, dev-staging.",
+                        },
+                        "status": {
+                            "type": "string",
+                            "description": "passed (tested, state result), failed (vuln found — file it as a finding), na (not applicable, explain in note).",
+                        },
+                        "note": {"type": "string", "description": "What was tested / why na."},
+                        "evidence_id": {"type": "string", "description": "Evidence id if a vuln was found."},
+                    },
+                    "required": ["id", "status"],
+                },
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "roi_gate_list",
+                "description": "List high-ROI mandatory gates and their status.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "classify_challenge",
+                "description": (
+                    "Classify a CTF challenge (pwn/web/crypto/rev/forensics/misc) by three-way vote: "
+                    "file type, keywords, service behavior. ALWAYS call first on a new challenge — "
+                    "wrong category wastes everything after. Returns category + confidence + opening flow."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "files": {"type": "array", "items": {"type": "string"}, "description": "Filenames given with the challenge."},
+                        "description": {"type": "string", "description": "Challenge description text."},
+                        "target": {"type": "string", "description": "Service target, e.g. http://host:port or 'nc host 1337'."},
+                        "has_remote": {"type": "boolean", "description": "Whether a remote service is provided."},
+                    },
+                },
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "map_vuln",
+                "description": (
+                    "Map a URL/parameter to likely vulnerability classes by function semantics "
+                    "(e.g. url= → SSRF, ?id=123 → IDOR). Ranked by priority. Call after endpoint discovery."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url_or_param": {"type": "string", "description": "URL or parameter string to analyze."},
+                    },
+                    "required": ["url_or_param"],
+                },
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "web_opening_checklist",
+                "description": "Get the deterministic web opening 5-item checklist (source, robots, cookies, headers, sensitive files). Run these first on any web target.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "crypto_rsa_tree",
+                "description": "Get the RSA attack decision tree (RsaCtfTool first, then small-n, cube-root, Hastad, common-modulus, Wiener, Fermat, Pollard p-1, batch GCD). Walk it in order.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "detect_encoding",
+                "description": "Auto-detect common encodings (base64, hex, rot13/rot1/rot25, reversed) in a mystery string. Run before crypto analysis.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string", "description": "The mystery string."}},
+                    "required": ["text"],
+                },
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "filter_fingerprint_plan",
+                "description": (
+                    "Get the WAF/filter fingerprint procedure: probe metacharacters one by one, "
+                    "build the usable charset, THEN craft payloads. If output is suppressed, switch to out-of-band."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"param_name": {"type": "string", "description": "Parameter being fingerprinted."}},
+                },
+            },
+        }
+    )
 

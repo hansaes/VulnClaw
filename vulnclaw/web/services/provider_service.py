@@ -67,6 +67,39 @@ def _matches_saved_credential_scope(
     )
 
 
+def preview_models(api_key: str, base_url: str, provider: str | None) -> ProviderModelsResponse:
+    """List models with a one-shot user-supplied key (never persisted).
+
+    Unlike :func:`fetch_models`, the key comes from the request body and is
+    used only for this single ``/models`` call. The base URL must already be
+    validated as http(s) by the request schema.
+    """
+    resolved = (base_url or "").strip()
+    if not resolved and provider:
+        try:
+            preset = PROVIDER_PRESETS.get(LLMProvider(provider.lower()))
+        except ValueError:
+            preset = None
+        if preset and preset.get("base_url"):
+            resolved = str(preset["base_url"])
+    key = (api_key or "").strip()
+    if not resolved or not key:
+        return ProviderModelsResponse(
+            base_url=resolved,
+            models=[],
+            has_api_key=bool(key),
+            detail="需要接口地址和 API Key 才能获取模型列表。",
+        )
+    models = fetch_provider_models(resolved, key)
+    detail = "" if models else "未能获取到模型列表，请检查接口地址与 Key 是否正确。"
+    return ProviderModelsResponse(
+        base_url=resolved,
+        models=models,
+        has_api_key=True,
+        detail=detail,
+    )
+
+
 def fetch_models(request: ProviderModelsRequest) -> ProviderModelsResponse:
     """List models for a provider/base URL using the saved API key.
 
