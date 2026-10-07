@@ -923,5 +923,12 @@
   "models.modal_edit": "编辑模型",
   "models.f_role": "用途",
   "models.f_provider_id": "服务商 ID",
-  "models.provider_custom": "自定义…"
+  "models.provider_custom": "自定义…",
+  "detail.view_process": "执行过程",
+  "detail.view_log": "原始日志",
+  "detail.step_n": "步骤 {n}",
+  "detail.tl_evidence": "证据",
+  "detail.tl_tool": "工具调用",
+  "detail.tl_result": "工具返回",
+  "detail.no_process_events": "暂无执行过程，等待 Agent 开始工作…"
 }

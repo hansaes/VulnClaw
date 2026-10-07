@@ -923,5 +923,12 @@
   "models.modal_edit": "Edit model",
   "models.f_role": "Role",
   "models.f_provider_id": "Provider ID",
-  "models.provider_custom": "Custom…"
+  "models.provider_custom": "Custom…",
+  "detail.view_process": "Process",
+  "detail.view_log": "Raw log",
+  "detail.step_n": "Step {n}",
+  "detail.tl_evidence": "Evidence",
+  "detail.tl_tool": "Tool call",
+  "detail.tl_result": "Tool result",
+  "detail.no_process_events": "No process yet — waiting for the agent…"
 }
