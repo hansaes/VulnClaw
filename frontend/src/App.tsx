@@ -133,7 +133,16 @@ export function App() {
 
   useEffect(() => {
     if (!activeTask) return;
-    const source = openTaskStream(activeTask.task_id, (event) => {
+    // A stream is opened even for an already-finished task so the console can show
+    // its recorded events. The server replays that history and then closes the
+    // connection, and the browser's EventSource reconnects on close - which would
+    // replay the terminal event and re-announce it forever. So: only announce a
+    // terminal event when this page actually saw the task running, and close the
+    // stream as soon as one arrives.
+    const wasFinished = ["completed", "failed", "stopped"].includes(activeTask.status);
+    let source: EventSource | null = null;
+    const closeStream = () => source?.close();
+    source = openTaskStream(activeTask.task_id, (event) => {
       setTaskEvents((prev) => [...prev.slice(-79), event]);
       if (event.event === "task_completed") {
         const summary = eventSummary(event);
@@ -143,34 +152,43 @@ export function App() {
             : prev,
         );
         refreshTaskData(summary?.target ?? activeTask.target);
-        pushToast(
-          "success",
-          t("toast.task_finished"),
-          t("toast.task_finished_copy"),
-          {
-            actionLabel: t("toast.open_results"),
-            onAction: () => {
-              setSelectedTarget(summary?.target ?? activeTask.target);
-              navigateToView("risk");
+        if (!wasFinished) {
+          pushToast(
+            "success",
+            t("toast.task_finished"),
+            t("toast.task_finished_copy"),
+            {
+              actionLabel: t("toast.open_results"),
+              onAction: () => {
+                setSelectedTarget(summary?.target ?? activeTask.target);
+                navigateToView("risk");
+              },
             },
-          },
-        );
+          );
+        }
+        closeStream();
       }
       if (event.event === "task_failed") {
         setActiveTask((prev) => (prev && prev.task_id === event.task_id ? { ...prev, status: "failed" } : prev));
         refreshTaskData(activeTask.target);
-        pushToast("error", t("toast.task_failed"), String(event.payload.message ?? event.payload.error ?? t("toast.task_failed_copy")), {
-          actionLabel: t("toast.open_console"),
-          onAction: () => navigateToView("advanced"),
-        });
+        if (!wasFinished) {
+          pushToast("error", t("toast.task_failed"), String(event.payload.message ?? event.payload.error ?? t("toast.task_failed_copy")), {
+            actionLabel: t("toast.open_console"),
+            onAction: () => navigateToView("advanced"),
+          });
+        }
+        closeStream();
       }
       if (event.event === "task_stopped") {
         setActiveTask((prev) => (prev && prev.task_id === event.task_id ? { ...prev, status: "stopped" } : prev));
         refreshTaskData(activeTask.target);
-        pushToast("info", t("toast.task_stopped"), t("toast.task_stopped_copy"));
+        if (!wasFinished) {
+          pushToast("info", t("toast.task_stopped"), t("toast.task_stopped_copy"));
+        }
+        closeStream();
       }
     });
-    return () => source.close();
+    return () => source?.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTask?.task_id]);
 

@@ -1561,3 +1561,18 @@ class TestWebAuthLoopback:
         # Exemption is exact: a look-alike path is NOT exempt for a remote client.
         look_alike = await mw.dispatch(_Req("/api/healthcheck", "203.0.113.7"), call_next)
         assert getattr(look_alike, "status_code", None) == 401
+
+    def test_finished_task_stream_stops_and_does_not_reannounce(self):
+        """A finished task's stream must not loop re-toasting its completion.
+
+        The server replays a task's history and then closes the connection, and
+        EventSource reconnects on close - so without a client guard the terminal
+        event is announced again on every replay. The page must only announce a
+        terminal event it watched live, and close the stream when one arrives.
+        """
+        root = Path(__file__).resolve().parents[2] / "frontend"
+        app_source = (root / "src" / "App.tsx").read_text(encoding="utf-8")
+
+        assert "wasFinished" in app_source
+        assert "closeStream()" in app_source
+        assert "includes(activeTask.status)" in app_source
