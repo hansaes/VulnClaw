@@ -5,14 +5,43 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 
-from vulnclaw.web.auth import AuthMiddleware, attach_session_cookie, verify_token
+from vulnclaw.web.auth import (
+    AuthMiddleware,
+    SESSION_COOKIE,
+    attach_session_cookie,
+    create_session,
+    destroy_session,
+    password_auth_enabled,
+    verify_credentials,
+    verify_session,
+    verify_token,
+)
 from vulnclaw.web.schemas import (
     ConfigUpdateRequest,
     ProviderModelsRequest,
     ReportGenerateRequest,
     TaskCreateRequest,
+    LoginRequest,
+    LessonCreateRequest,
+    ChatMessageRequest,
+    ModelProfileRequest,
 )
 from vulnclaw.web.services.config_service import get_public_config, update_public_config
+from vulnclaw.web.services.memory_service import (
+    approve_lesson,
+    create_lesson,
+    delete_lesson,
+    list_lessons,
+    memory_summary,
+)
+from vulnclaw.web.services.chat_service import parse_message
+from vulnclaw.web.services.model_profile_service import (
+    activate_model_profile,
+    create_model_profile,
+    delete_model_profile,
+    list_model_profiles,
+    update_model_profile,
+)
 from vulnclaw.web.services.constraint_audit_service import get_constraint_audit
 from vulnclaw.web.services.mcp_service import get_mcp_diagnostics
 from vulnclaw.web.services.provider_service import fetch_models, get_provider_presets
@@ -131,6 +160,174 @@ def create_app():
     @app.get("/api/health")
     async def health():
         return {"status": "ok", "service": "vulnclaw-web"}
+
+
+    @app.post("/api/auth/login")
+    async def login(request: LoginRequest):
+        if not password_auth_enabled():
+            raise HTTPException(status_code=404, detail="Password login is not configured")
+        if not verify_credentials(request.username, request.password):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        token = create_session()
+        response = JSONResponse({"ok": True})
+        attach_session_cookie(response, token)
+        return response
+
+    @app.post("/api/auth/logout")
+    async def logout(request: Request):
+        token = request.cookies.get(SESSION_COOKIE, "")
+        if token:
+            destroy_session(token)
+        response = JSONResponse({"ok": True})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
+
+    @app.get("/api/auth/status")
+    async def auth_status(request: Request):
+        token = request.cookies.get(SESSION_COOKIE, "")
+        return {
+            "authenticated": bool(token) and verify_session(token),
+            "password_auth_enabled": password_auth_enabled(),
+        }
+
+
+    @app.get("/api/memory/summary")
+    async def memory_summary_view():
+        return memory_summary()
+
+    @app.get("/api/memory/lessons")
+    async def memory_lessons(
+        scope: str | None = None,
+        target_key: str | None = None,
+        status: str | None = None,
+    ):
+        return list_lessons(scope=scope, target_key=target_key, status=status)
+
+    @app.post("/api/memory/lessons")
+    async def memory_lesson_create(request: LessonCreateRequest):
+        try:
+            return create_lesson(request.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.delete("/api/memory/lessons/{lesson_id}")
+    async def memory_lesson_delete(lesson_id: str):
+        if not delete_lesson(lesson_id):
+            raise HTTPException(status_code=404, detail="Lesson not found")
+        return {"ok": True, "lesson_id": lesson_id}
+
+    @app.post("/api/memory/lessons/{lesson_id}/approve")
+    async def memory_lesson_approve(lesson_id: str):
+        lesson = approve_lesson(lesson_id)
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Lesson not found")
+        return lesson
+
+
+    @app.post("/api/chat/message")
+    async def chat_message(request: ChatMessageRequest):
+        """Rule-based assistant: start tasks, check progress, summarize findings."""
+        parsed = parse_message(request.message)
+        zh = parsed.get("zh", True)
+        intent = parsed.get("intent")
+
+        def _t(zh_text: str, en_text: str) -> str:
+            return zh_text if zh else en_text
+
+        if intent == "start_task":
+            target = parsed["target"]
+            command = parsed["command"]
+            cmd_label = {"scan": _t("扫描", "scan"), "recon": _t("侦察", "recon"),
+                         "exploit": _t("漏洞验证", "exploit"), "run": _t("渗透测试", "pentest"),
+                         "persistent": _t("持续渗透", "persistent")}.get(command, command)
+            task_req = TaskCreateRequest(command=command, target=target, resume=True)
+            task_id = start_task(task_manager, task_req)
+            return {
+                "intent": intent,
+                "task_id": task_id,
+                "reply": _t(
+                    f"已为 {target} 启动{cmd_label}任务（{task_id[:8]}），已载入该域名的历史记忆继续执行。你可以在任务管理页查看实时进度。",
+                    f"Started {cmd_label} task on {target} ({task_id[:8]}) with the domain's memory loaded. Watch it live on the Tasks page.",
+                ),
+            }
+
+        if intent == "task_progress":
+            tasks = task_manager.list_tasks()
+            running = [x for x in tasks if x.status in ("running", "pending")]
+            done = [x for x in tasks if x.status not in ("running", "pending")]
+            if not tasks:
+                return {"intent": intent, "reply": _t("还没有任务。跟我说「对 example.com 做一次扫描」即可开任务。", "No tasks yet. Say 'scan example.com' to start one.")}
+            lines = []
+            for x in running:
+                lines.append(_t(f"• {x.target}（{x.command}）：{x.status}，阶段 {x.phase or '-'}", f"• {x.target} ({x.command}): {x.status}, phase {x.phase or '-'}"))
+            for x in done[:5]:
+                lines.append(_t(f"• {x.target}（{x.command}）：{x.status}", f"• {x.target} ({x.command}): {x.status}"))
+            head = _t(f"当前 {len(running)} 个任务进行中，共 {len(tasks)} 个任务：", f"{len(running)} running, {len(tasks)} total:")
+            return {"intent": intent, "reply": head + "\n" + "\n".join(lines)}
+
+        if intent == "task_list":
+            tasks = task_manager.list_tasks()[:10]
+            if not tasks:
+                return {"intent": intent, "reply": _t("任务列表是空的。", "No tasks.")}
+            lines = [_t(f"• {x.target}（{x.command}）：{x.status}", f"• {x.target} ({x.command}): {x.status}") for x in tasks]
+            return {"intent": intent, "reply": "\n".join(lines)}
+
+        if intent == "vuln_summary":
+            target = parsed.get("target")
+            if target:
+                view = get_target(target)
+                if not view:
+                    return {"intent": intent, "reply": _t(f"没找到 {target} 的记录，先对它跑一次任务吧。", f"No record for {target} yet — run a task on it first.")}
+                n = view.findings_count or 0
+                return {"intent": intent, "reply": _t(f"{target} 共发现 {n} 个漏洞，去漏洞管理页查看详情。", f"{target} has {n} findings — see the Findings page for details.")}
+            targets = list_targets()
+            total = sum(x.findings_count or 0 for x in targets)
+            lines = [_t(f"• {x.target}：{x.findings_count or 0} 个", f"• {x.target}: {x.findings_count or 0}") for x in targets[:10] if (x.findings_count or 0) > 0]
+            body = "\n".join(lines) if lines else _t("暂无漏洞记录。", "No findings recorded.")
+            return {"intent": intent, "reply": _t(f"共 {total} 个漏洞：\n{body}", f"{total} findings total:\n{body}")}
+
+        if intent == "help":
+            return {"intent": intent, "reply": _t(
+                "我可以帮你：\n• 开任务：「对 example.com 做一次扫描」\n• 查进度：「任务进度怎么样」\n• 查漏洞：「example.com 有哪些漏洞」",
+                "I can:\n• Start tasks: 'scan example.com'\n• Check progress: 'progress'\n• Summarize findings: 'vulns on example.com'",
+            )}
+
+        return {"intent": "unknown", "reply": _t(
+            "我没理解。试试：「对 example.com 做一次扫描」「任务进度怎么样」「example.com 有哪些漏洞」",
+            "I didn't get that. Try: 'scan example.com', 'progress', or 'vulns on example.com'.",
+        )}
+
+
+    @app.get("/api/model-profiles")
+    async def model_profiles():
+        return list_model_profiles()
+
+    @app.post("/api/model-profiles")
+    async def model_profile_create(request: ModelProfileRequest):
+        try:
+            return create_model_profile(request.model_dump(exclude_none=True))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.patch("/api/model-profiles/{profile_id}")
+    async def model_profile_update(profile_id: str, request: ModelProfileRequest):
+        profile = update_model_profile(profile_id, request.model_dump(exclude_none=True))
+        if not profile:
+            raise HTTPException(status_code=404, detail="Model profile not found")
+        return profile
+
+    @app.delete("/api/model-profiles/{profile_id}")
+    async def model_profile_delete(profile_id: str):
+        if not delete_model_profile(profile_id):
+            raise HTTPException(status_code=404, detail="Model profile not found")
+        return {"ok": True}
+
+    @app.post("/api/model-profiles/{profile_id}/activate")
+    async def model_profile_activate(profile_id: str):
+        profile = activate_model_profile(profile_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Model profile not found")
+        return profile
 
     @app.get("/api/config")
     async def config_view():

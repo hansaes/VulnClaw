@@ -181,6 +181,34 @@ class ReportGenerateRequest(BaseModel):
     report_format: Literal["markdown", "html"] = "markdown"
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class ModelProfileRequest(BaseModel):
+    label: Optional[str] = Field(default=None, max_length=128)
+    provider: Optional[str] = Field(default=None, max_length=64)
+    model: Optional[str] = Field(default=None, max_length=160)
+    base_url: Optional[str] = Field(default=None, max_length=512)
+    api_key: Optional[str] = Field(default=None, max_length=512)
+
+
+class ChatMessageRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+
+
+class LessonCreateRequest(BaseModel):
+    scope: str = Field(default="technique", pattern="^(technique|target)$")
+    target_key: Optional[str] = Field(default=None, max_length=512)
+    signal: str = Field(default="success", pattern="^(success|deadend)$")
+    context: str = Field(min_length=1, max_length=16000)
+    lesson: str = Field(min_length=1, max_length=16000)
+    tech: list[str] = Field(default_factory=list, max_length=20)
+    vuln_type: str = Field(default="", max_length=128)
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+
+
 class ConfigView(BaseModel):
     provider: str
     model: str

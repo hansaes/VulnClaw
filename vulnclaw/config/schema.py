@@ -138,6 +138,17 @@ PROVIDER_PRESETS: dict[LLMProvider, dict[str, str]] = {
 }
 
 
+class ModelProfileConfig(BaseModel):
+    """A named, switchable LLM model configuration."""
+
+    id: str = Field(min_length=1, max_length=64)
+    label: str = Field(default="", max_length=128)
+    provider: str = Field(default="openai", max_length=64)
+    model: str = Field(default="", max_length=160)
+    base_url: str = Field(default="", max_length=512)
+    api_key: str = Field(default="", max_length=512)
+
+
 class LLMConfig(BaseModel):
     """LLM provider configuration."""
 
@@ -179,6 +190,14 @@ class LLMConfig(BaseModel):
     model: str = Field(
         default=PROVIDER_PRESETS[LLMProvider.OPENAI]["default_model"],
         description="Model name to use (auto-filled by provider)",
+    )
+    model_profiles: list[ModelProfileConfig] = Field(
+        default_factory=list,
+        description="Named model configurations the Web UI can switch between.",
+    )
+    active_model_profile_id: str = Field(
+        default="",
+        description="ID of the active model profile (empty = manual llm.* values).",
     )
     website_url: str = Field(
         default="",
@@ -407,6 +426,14 @@ class SessionConfig(BaseModel):
     )
     poc_language: str = Field(default="python", description="Default PoC language: python, bash")
     max_rounds: int = Field(default=15, description="Max autonomous pentest rounds (1-100)")
+    headless_autonomy: bool = Field(
+        default=False,
+        description=(
+            "Headless run (Web task / CI): no human is attached to answer ASK_USER, so the "
+            "solve loop turns an unanswered question into a self-answer directive instead of "
+            "ending the run. Interactive CLI/TUI runs leave this off."
+        ),
+    )
     context_hot_max_messages: int = Field(
         default=48,
         ge=4,
