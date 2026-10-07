@@ -170,6 +170,16 @@ class WebTaskManager:
 
         for item in raw.get("tasks", []):
             record = TaskRecord(**item)
+            # A task that was mid-flight when this process last exited has no
+            # runner behind it any more - its asyncio task died with the process.
+            # Leaving it "running" would show a phantom task (and a phantom
+            # active-task banner) forever, so close it out as stopped.
+            if record.status in {"running", "pending", "restoring"}:
+                record.status = "stopped"
+                record.completed_at = record.completed_at or datetime.now().isoformat()
+                record.latest_message = (
+                    record.latest_message or "stopped when the web server restarted"
+                )
             self._tasks[record.task_id] = record
             self._queues[record.task_id] = asyncio.Queue()
 
