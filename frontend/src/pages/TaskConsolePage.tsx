@@ -102,11 +102,73 @@ export function TaskConsolePage({ activeTask, events, tasks, onSelectTask, onNew
 
   const feedEvents = useMemo(() => {
     const q = search.toLowerCase();
-    return events
+    const filtered = events
       .filter((e) => matchesFilter(e, eventFilter))
-      .filter((e) => !q || eventText(e).toLowerCase().includes(q) || e.event.toLowerCase().includes(q))
-      .slice(-200);
+      .filter((e) => !q || eventText(e).toLowerCase().includes(q) || e.event.toLowerCase().includes(q));
+    // Fold consecutive model-output deltas into one growing line, so streamed
+    // text reads as prose instead of one fragment per token batch.
+    const merged: TaskEvent[] = [];
+    for (const item of filtered) {
+      const prev = merged[merged.length - 1];
+      const sameStream =
+        item.event === "agent_stream" &&
+        prev?.event === "agent_stream" &&
+        stringField(prev, "type") === stringField(item, "type");
+      if (sameStream) {
+        merged[merged.length - 1] = {
+          ...item,
+          payload: {
+            ...item.payload,
+            text: `${stringField(prev, "text")}${stringField(item, "text")}`,
+          },
+        };
+      } else {
+        merged.push(item);
+      }
+    }
+    return merged.slice(-200);
   }, [events, eventFilter, search]);
+
+  // Sub-agent view: latest state per agent plus per-group member progress.
+  const subagents = useMemo(() => {
+    const agents = new Map<string, { name: string; status: string; type: string }>();
+    const groups = new Map<string, { name: string; done: number; total: number; waves: number }>();
+    const num = (event: TaskEvent, key: string) => {
+      const value = event.payload[key];
+      return typeof value === "number" && Number.isFinite(value) ? value : 0;
+    };
+    for (const event of events) {
+      if (event.event === "subagent") {
+        const id = stringField(event, "agent_id");
+        if (id) {
+          agents.set(id, {
+            name: stringField(event, "name") || id,
+            status: stringField(event, "status"),
+            type: stringField(event, "agent_type"),
+          });
+        }
+      } else if (event.event === "group_progress") {
+        const id = stringField(event, "group_id") || stringField(event, "name");
+        if (id) {
+          groups.set(id, {
+            name: stringField(event, "name") || id,
+            done: num(event, "member_done"),
+            total: num(event, "member_total"),
+            waves: num(event, "wave_count"),
+          });
+        }
+      }
+    }
+    const list = [...agents.values()];
+    const isRunning = (status: string) => status === "running" || status === "pending";
+    return {
+      total: list.length,
+      running: list.filter((a) => isRunning(a.status)).length,
+      finished: list.filter((a) => !isRunning(a.status)).length,
+      items: list.slice(-6),
+      groups: [...groups.values()],
+    };
+  }, [events]);
 
   useEffect(() => {
     const node = feedRef.current;
@@ -332,6 +394,59 @@ export function TaskConsolePage({ activeTask, events, tasks, onSelectTask, onNew
             </div>
 
             <div className="vw-side-stack">
+              <div className="vw-card">
+                <h3>{t("detail.subagents_title")}</h3>
+                <div style={{ marginTop: 6 }}>
+                  <div className="vw-kv">
+                    <span className="k">{t("detail.subagents_running")}</span>
+                    <span className="v" style={{ color: subagents.running ? "var(--green)" : "var(--faint)" }}>
+                      {subagents.running}
+                    </span>
+                  </div>
+                  <div className="vw-kv">
+                    <span className="k">{t("detail.subagents_done")}</span>
+                    <span className="v">{subagents.finished}</span>
+                  </div>
+                  <div className="vw-kv">
+                    <span className="k">{t("detail.subagents_total")}</span>
+                    <span className="v">{subagents.total}</span>
+                  </div>
+                </div>
+                {subagents.groups.map((group) => (
+                  <div className="vw-kv" key={group.name}>
+                    <span className="k">{group.name}</span>
+                    <span className="v vw-mono">
+                      {t("detail.members", { done: String(group.done), total: String(group.total) })}
+                      {group.waves > 0 ? ` · ${t("detail.waves", { count: String(group.waves) })}` : ""}
+                    </span>
+                  </div>
+                ))}
+                {subagents.items.map((agent) => (
+                  <div className="vw-kv" key={agent.name}>
+                    <span className="k" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span
+                        style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: "50%",
+                          background:
+                            agent.status === "running" || agent.status === "pending"
+                              ? "var(--green)"
+                              : "var(--faint)",
+                        }}
+                      />
+                      {agent.name}
+                    </span>
+                    <span className="v">{agent.type} · {agent.status}</span>
+                  </div>
+                ))}
+                {!subagents.total && (
+                  <div className="vw-kv">
+                    <span className="k" style={{ color: "var(--faint)" }}>{t("detail.subagents_none")}</span>
+                  </div>
+                )}
+              </div>
+
               <div className="vw-card">
                 <h3>{t("detail.task_info")}</h3>
                 <div style={{ marginTop: 6 }}>
