@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ShellAction } from "./components/AppShell";
 import { AppShell } from "./components/AppShell";
+import type { NavItem } from "./components/Sidebar";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ToastHost, type ToastItem, type ToastTone } from "./components/ToastHost";
+import { DashboardPage } from "./pages/DashboardPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { HomePage } from "./pages/HomePage";
 import { ReportsPage } from "./pages/ReportsPage";
@@ -12,12 +13,12 @@ import { SafetyBoundaryPage } from "./pages/SafetyBoundaryPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TaskConsolePage } from "./pages/TaskConsolePage";
 import { createTask, openTaskStream, stopTask } from "./api/web";
-import { useConfigQuery } from "./hooks/queries";
-import { useT, type TFunction } from "./i18n";
+import { useConfigQuery, useTargetsQuery, useTasksQuery } from "./hooks/queries";
+import { useT } from "./i18n";
 import type { TaskCommand, TaskEvent, TaskOptions, TaskRecord, TaskSummary } from "./types/api";
 import { formatTaskTitle } from "./utils/taskLabels";
 
-type AppView = "home" | "risk" | "reports" | "boundary" | "history" | "settings" | "advanced";
+type AppView = "dashboard" | "home" | "risk" | "reports" | "boundary" | "history" | "settings" | "advanced";
 type SettingsSection = "basic" | "ai" | "checks" | "boundary" | "data" | "python" | "diagnostics";
 
 interface ReportFocus {
@@ -26,47 +27,8 @@ interface ReportFocus {
   openPreview?: boolean;
 }
 
-function buildViewMeta(t: TFunction): Record<AppView, { eyebrow: string; title: string; copy: string }> {
-  return {
-    home: {
-      eyebrow: t("view.scan.eyebrow"),
-      title: t("view.scan.title"),
-      copy: t("view.scan.copy"),
-    },
-    risk: {
-      eyebrow: t("view.findings.eyebrow"),
-      title: t("view.findings.title"),
-      copy: t("view.findings.copy"),
-    },
-    reports: {
-      eyebrow: t("view.reports.eyebrow"),
-      title: t("view.reports.title"),
-      copy: t("view.reports.copy"),
-    },
-    boundary: {
-      eyebrow: t("view.scope.eyebrow"),
-      title: t("view.scope.title"),
-      copy: t("view.scope.copy"),
-    },
-    history: {
-      eyebrow: t("view.history.eyebrow"),
-      title: t("view.history.title"),
-      copy: t("view.history.copy"),
-    },
-    settings: {
-      eyebrow: t("view.settings.eyebrow"),
-      title: t("view.settings.title"),
-      copy: t("view.settings.copy"),
-    },
-    advanced: {
-      eyebrow: t("view.console.eyebrow"),
-      title: t("view.console.title"),
-      copy: t("view.console.copy"),
-    },
-  };
-}
-
 const HASH_TO_VIEW: Record<string, AppView> = {
+  dashboard: "dashboard",
   home: "home",
   risk: "risk",
   reports: "reports",
@@ -78,15 +40,13 @@ const HASH_TO_VIEW: Record<string, AppView> = {
 
 function viewFromHash(): AppView {
   const key = window.location.hash.replace(/^#/, "");
-  return HASH_TO_VIEW[key] ?? "home";
-}
-
-function viewHash(view: AppView): string {
-  return view;
+  return HASH_TO_VIEW[key] ?? "dashboard";
 }
 
 export function App() {
   const configQuery = useConfigQuery();
+  const tasksQuery = useTasksQuery();
+  const targetsQuery = useTargetsQuery();
   const queryClient = useQueryClient();
   const { t } = useT();
   const [activeView, setActiveView] = useState<AppView>(() => viewFromHash());
@@ -98,22 +58,34 @@ export function App() {
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  const VIEW_META = useMemo(() => buildViewMeta(t), [t]);
+  const runningCount = useMemo(
+    () => (tasksQuery.data ?? []).filter((x) => x.status === "running" || x.status === "pending").length,
+    [tasksQuery.data],
+  );
+  const pendingVulns = useMemo(
+    () => (targetsQuery.data ?? []).reduce((n, x) => n + (x.pending_count ?? 0) + (x.candidate_count ?? 0), 0),
+    [targetsQuery.data],
+  );
 
-  const nav = useMemo(
+  const nav = useMemo<NavItem<AppView>[]>(
     () => [
-      { key: "home" as const, label: t("nav.scan"), description: t("nav.scan_desc"), icon: "/icons/sidebar/scan.svg" },
-      { key: "risk" as const, label: t("nav.findings"), description: t("nav.findings_desc"), icon: "/icons/sidebar/findings.svg" },
-      { key: "reports" as const, label: t("nav.reports"), description: t("nav.reports_desc"), icon: "/icons/sidebar/reports.svg" },
-      { key: "boundary" as const, label: t("nav.scope"), description: t("nav.scope_desc"), icon: "/icons/sidebar/scope.svg" },
-      { key: "history" as const, label: t("nav.history"), description: t("nav.history_desc"), icon: "/icons/sidebar/history.svg" },
-      { key: "settings" as const, label: t("nav.settings"), description: t("nav.settings_desc"), icon: "/icons/sidebar/settings.svg" },
+      { key: "dashboard", label: t("nav.dashboard"), description: t("nav.dashboard_desc"), icon: "dashboard" },
+      { key: "home", label: t("nav.scan"), description: t("nav.scan_desc"), icon: "plus" },
+      { key: "history", label: t("nav.tasks"), description: t("nav.tasks_desc"), icon: "tasks", badge: runningCount },
+      { key: "risk", label: t("nav.findings"), description: t("nav.findings_desc"), icon: "shield", badge: pendingVulns },
+      { key: "reports", label: t("nav.reports"), description: t("nav.reports_desc"), icon: "reports" },
+      { key: "boundary", label: t("nav.scope"), description: t("nav.scope_desc"), icon: "scope" },
+      { key: "settings", label: t("nav.settings"), description: t("nav.settings_desc"), icon: "settings" },
     ],
-    [t],
+    [t, runningCount, pendingVulns],
+  );
+
+  const crumb = useMemo(
+    () => nav.find((n) => n.key === activeView)?.label ?? t("nav.dashboard"),
+    [nav, activeView, t],
   );
 
   const latestEvent = taskEvents.length > 0 ? taskEvents[taskEvents.length - 1] : null;
-  const hasStoppableTask = activeTask?.status === "running" || activeTask?.status === "pending";
 
   useEffect(() => {
     const handleHashChange = () => setActiveView(viewFromHash());
@@ -123,9 +95,8 @@ export function App() {
   }, []);
 
   function navigateToView(view: AppView) {
-    const nextHash = viewHash(view);
-    if (window.location.hash !== `#${nextHash}`) {
-      window.location.hash = nextHash;
+    if (window.location.hash !== `#${view}`) {
+      window.location.hash = view;
     }
     setActiveView(view);
   }
@@ -200,6 +171,7 @@ export function App() {
       }
     });
     return () => source.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTask?.task_id]);
 
   async function handleCreateTask(command: TaskCommand, target: string, resume: boolean, options: TaskOptions): Promise<TaskRecord> {
@@ -246,81 +218,66 @@ export function App() {
     navigateToView(view);
   }
 
-  const quickActions: ShellAction[] = useMemo(() => [
-    { label: t("quick.new_scan"), icon: "/icons/rail/plus.svg", active: activeView === "home", onClick: () => navigateToView("home") },
-    { label: t("quick.history"), icon: "/icons/sidebar/history.svg", active: activeView === "history", onClick: () => navigateToView("history") },
-    { label: t("quick.reports"), icon: "/icons/sidebar/reports.svg", active: activeView === "reports", onClick: () => openReports(activeTask?.target ?? selectedTarget) },
-    {
-      label: t("quick.assets"),
-      icon: "/icons/rail/assets.svg",
-      active: activeView === "risk",
-      onClick: () => {
-        if (activeTask?.target) setSelectedTarget(activeTask.target);
-        navigateToView("risk");
-      },
-    },
-    {
-      label: t("quick.scope"),
-      icon: "/icons/sidebar/scope.svg",
-      active: activeView === "boundary",
-      onClick: openBoundaryForActiveTask,
-    },
-    {
-      label: t("quick.findings"),
-      icon: "/icons/sidebar/findings.svg",
-      active: activeView === "risk",
-      onClick: () => navigateToView("risk"),
-    },
-    { label: t("nav.console"), icon: "/icons/rail/console.svg", active: activeView === "advanced", onClick: () => navigateToView("advanced") },
-    {
-      label: t("quick.refresh"),
-      icon: "/icons/rail/refresh.svg",
-      onClick: () => refreshTaskData(activeTask?.target ?? selectedTarget),
-    },
-  ], [t, activeView, activeTask?.target, selectedTarget]);
-
-  const sidebarActions: ShellAction[] = useMemo(() => [
-    hasStoppableTask
-      ? { label: t("quick.stop_task"), icon: "/icons/rail/stop.svg", onClick: () => setStopConfirmOpen(true) }
-      : { label: t("quick.home"), icon: "/icons/rail/home.svg", active: activeView === "home", onClick: () => navigateToView("home") },
-    { label: t("nav.settings"), icon: "/icons/sidebar/settings.svg", active: activeView === "settings", onClick: () => openSettings("basic") },
-    { label: t("nav.console"), icon: "/icons/rail/console.svg", active: activeView === "advanced", onClick: () => navigateToView("advanced") },
-  ], [t, hasStoppableTask, activeView]);
+  function openTaskDetail(task: TaskRecord) {
+    setActiveTask(task);
+    setSelectedTarget(task.target);
+    setTaskEvents([]);
+    navigateToView("advanced");
+  }
 
   return (
     <AppShell
       activeView={activeView}
-      activeNavView={activeView === "advanced" ? "settings" : activeView}
       nav={nav}
-      meta={VIEW_META[activeView]}
-      quickActions={quickActions}
-      sidebarActions={sidebarActions}
+      crumb={crumb}
       backendUnavailable={configQuery.isError}
       backendError={configQuery.error instanceof Error ? configQuery.error.message : undefined}
       onRetryBackend={() => void configQuery.refetch()}
-      selectedTarget={selectedTarget}
+      targetCount={targetsQuery.data?.length}
       activeTask={activeTask}
-      latestEvent={latestEvent}
       onSelectView={handleSelectView}
-      onOpenAdvanced={() => navigateToView("advanced")}
-      onOpenBoundary={openBoundaryForActiveTask}
-      onOpenReports={() => openReports()}
-      onOpenTarget={(target) => {
-        setSelectedTarget(target);
-        navigateToView("risk");
-      }}
+      onOpenTaskDetail={() => navigateToView("advanced")}
       onStopTask={() => setStopConfirmOpen(true)}
     >
+      {activeView === "dashboard" && (
+        <DashboardPage
+          onNewTask={() => navigateToView("home")}
+          onOpenTasks={() => navigateToView("history")}
+          onOpenVulns={(target) => {
+            setSelectedTarget(target);
+            navigateToView("risk");
+          }}
+          onOpenReports={() => openReports()}
+        />
+      )}
+
       {activeView === "home" && (
         <HomePage
-          selectedTarget={selectedTarget}
-          activeTask={activeTask}
-          latestEvent={latestEvent}
-          taskEvents={taskEvents}
+          initialTarget={selectedTarget}
           onCreateTask={handleCreateTask}
-          onOpenRisk={() => navigateToView("risk")}
-          onOpenReports={() => openReports(activeTask?.target ?? selectedTarget)}
-          onOpenBoundary={openBoundaryForActiveTask}
+          onDone={() => navigateToView("history")}
+        />
+      )}
+
+      {activeView === "history" && (
+        <HistoryPage
+          onOpenTask={openTaskDetail}
+          onNewTask={() => navigateToView("home")}
+        />
+      )}
+
+      {activeView === "advanced" && (
+        <TaskConsolePage
+          activeTask={activeTask}
+          events={taskEvents}
+          tasks={tasksQuery.data ?? []}
+          onSelectTask={openTaskDetail}
+          onNewTask={() => navigateToView("home")}
+          onOpenVulns={(target) => {
+            setSelectedTarget(target);
+            navigateToView("risk");
+          }}
+          onBack={() => navigateToView("history")}
         />
       )}
 
@@ -330,7 +287,6 @@ export function App() {
           onSelectTarget={setSelectedTarget}
           onOpenHome={() => navigateToView("home")}
           onOpenReports={(path) => openReports(selectedTarget, path, Boolean(path))}
-          onOpenBoundary={openBoundaryForActiveTask}
         />
       )}
 
@@ -346,40 +302,7 @@ export function App() {
         />
       )}
 
-      {activeView === "history" && (
-        <HistoryPage
-          selectedTarget={selectedTarget}
-          onSelectTarget={setSelectedTarget}
-          onOpenHome={() => navigateToView("home")}
-          onOpenReports={(target) => openReports(target)}
-          onOpenTarget={(target) => {
-            setSelectedTarget(target);
-            navigateToView("risk");
-          }}
-        />
-      )}
-
       {activeView === "settings" && <SettingsPage initialSection={settingsSection} onOpenAdvanced={() => navigateToView("advanced")} />}
-
-      {activeView === "advanced" && (
-        <TaskConsolePage
-          activeTask={activeTask}
-          events={taskEvents}
-          onTaskCreated={(task) => {
-            setActiveTask(task);
-            setSelectedTarget(task.target);
-            setTaskEvents([]);
-            navigateToView("advanced");
-          }}
-          onEvent={(event) => {
-            setTaskEvents((prev) => [...prev.slice(-299), event]);
-          }}
-          onFocusTarget={(target) => {
-            setSelectedTarget(target);
-            navigateToView("risk");
-          }}
-        />
-      )}
 
       <ConfirmDialog
         open={stopConfirmOpen}

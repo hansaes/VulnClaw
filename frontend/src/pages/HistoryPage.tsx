@@ -1,314 +1,188 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { rollbackTarget } from "../api/web";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { SectionCard } from "../components/SectionCard";
-import { useT, type TFunction } from "../i18n";
-import { useTargetDiffQuery, useTargetSnapshotsQuery, useTargetsQuery, useTasksQuery } from "../hooks/queries";
-import { formatPhaseLabel, formatResumeStrategy, formatTaskCommand, formatTaskStatus, formatTaskTitle } from "../utils/taskLabels";
+import { useMemo, useState } from "react";
+import { useTasksQuery } from "../hooks/queries";
+import { useT } from "../i18n";
+import type { TaskRecord } from "../types/api";
+import { formatTaskCommand, formatTaskStatus } from "../utils/taskLabels";
 
 interface HistoryPageProps {
-  selectedTarget: string | null;
-  onSelectTarget: (target: string | null) => void;
-  onOpenHome: () => void;
-  onOpenReports: (target: string) => void;
-  onOpenTarget: (target: string) => void;
+  onOpenTask: (task: TaskRecord) => void;
+  onNewTask: () => void;
 }
 
-function formatTime(value: string | undefined, t: TFunction): string {
-  if (!value) return t("reports.unknown_date");
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+type StatusFilter = "all" | "run" | "queue" | "done" | "fail";
+
+function stageIndex(task: TaskRecord): number {
+  if (task.status === "completed") return 4;
+  if (task.status === "failed" || task.status === "stopped") return 2;
+  const text = `${task.latest_phase ?? ""}`.toLowerCase();
+  if (text.includes("report")) return 3;
+  if (text.includes("exploit") || text.includes("verify")) return 2;
+  if (text.includes("scan")) return 1;
+  return 0;
 }
 
-function diffConclusion(diff: {
-  added_findings: string[];
-  updated_findings: string[];
-  added_steps: string[];
-  added_recon_assets: string[];
-}, t: TFunction): string {
-  const total = diff.added_findings.length + diff.updated_findings.length + diff.added_steps.length + diff.added_recon_assets.length;
-  if (diff.added_findings.length || diff.updated_findings.length) return t("history.diff_risk_changed");
-  if (total > 0) return t("history.diff_new_context");
-  return t("history.diff_no_delta");
+function statusBadge(status: TaskRecord["status"]): string {
+  if (status === "running" || status === "restoring") return "vw-b-run";
+  if (status === "pending") return "vw-b-queue";
+  if (status === "completed") return "vw-b-done";
+  if (status === "failed") return "vw-b-fail";
+  return "vw-b-pause";
 }
 
-export function HistoryPage({ selectedTarget, onSelectTarget, onOpenHome, onOpenReports, onOpenTarget }: HistoryPageProps) {
+function isRunningLike(s: TaskRecord["status"]): boolean {
+  return s === "running" || s === "restoring";
+}
+
+function formatElapsed(task: TaskRecord, t: (k: string) => string): string {
+  const start = task.started_at ?? task.created_at;
+  const end = task.completed_at ?? (isRunningLike(task.status) || task.status === "pending" ? new Date().toISOString() : undefined);
+  if (!start || !end) return "—";
+  const ms = +new Date(end) - +new Date(start);
+  if (Number.isNaN(ms) || ms < 0) return "—";
+  const m = Math.floor(ms / 60000);
+  if (m < 60) return t("task.minutes").replace("{count}", String(m));
+  const h = Math.floor(m / 60);
+  return t("task.hours_minutes").replace("{h}", String(h)).replace("{m}", String(m % 60));
+}
+
+function MiniPipeline({ task }: { task: TaskRecord }) {
+  const idx = stageIndex(task);
+  const interrupted = task.status === "failed" || task.status === "stopped";
+  return (
+    <div className="vw-mp" aria-hidden="true">
+      {[0, 1, 2, 3].map((i) => (
+        <i key={i} className={i < idx ? "done" : i === idx && !interrupted && idx < 4 ? "act" : ""} />
+      ))}
+      <span>
+        {task.status === "completed" ? "100%" : interrupted ? "—" : `${Math.round((idx / 4) * 100)}%`}
+      </span>
+    </div>
+  );
+}
+
+export function HistoryPage({ onOpenTask, onNewTask }: HistoryPageProps) {
   const { t } = useT();
-  const queryClient = useQueryClient();
-  const targetsQuery = useTargetsQuery();
   const tasksQuery = useTasksQuery();
-  const [localTarget, setLocalTarget] = useState("");
-  const [fromSnapshotId, setFromSnapshotId] = useState<string | null>(null);
-  const [toSnapshotId, setToSnapshotId] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busySnapshot, setBusySnapshot] = useState<string | null>(null);
-  const [pendingRollbackId, setPendingRollbackId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<StatusFilter>("all");
+  const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    if (selectedTarget) {
-      setLocalTarget(selectedTarget);
-      return;
-    }
-    const first = targetsQuery.data?.[0]?.target;
-    if (first) {
-      setLocalTarget(first);
-      onSelectTarget(first);
-    }
-  }, [selectedTarget, targetsQuery.data, onSelectTarget]);
+  const tasks = useMemo(() => {
+    const all = [...(tasksQuery.data ?? [])].sort(
+      (a, b) => +new Date(b.created_at) - +new Date(a.created_at),
+    );
+    return all.filter((x) => {
+      if (filter === "run" && !isRunningLike(x.status)) return false;
+      if (filter === "queue" && x.status !== "pending") return false;
+      if (filter === "done" && x.status !== "completed") return false;
+      if (filter === "fail" && x.status !== "failed") return false;
+      if (query) {
+        const q = query.toLowerCase();
+        if (!`${x.target} ${x.task_id} ${formatTaskCommand(x.command)}`.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [tasksQuery.data, filter, query]);
 
-  const targetValue = selectedTarget ?? localTarget ?? null;
-  const snapshotsQuery = useTargetSnapshotsQuery(targetValue);
-  const diffQuery = useTargetDiffQuery(targetValue, fromSnapshotId, toSnapshotId);
+  const counts = useMemo(() => {
+    const all = tasksQuery.data ?? [];
+    return {
+      all: all.length,
+      run: all.filter((x) => isRunningLike(x.status)).length,
+      queue: all.filter((x) => x.status === "pending").length,
+      done: all.filter((x) => x.status === "completed").length,
+      fail: all.filter((x) => x.status === "failed").length,
+    };
+  }, [tasksQuery.data]);
 
-  useEffect(() => {
-    const snapshots = snapshotsQuery.data ?? [];
-    if (snapshots.length >= 2) {
-      setToSnapshotId((current) => current ?? snapshots[0].snapshot_id);
-      setFromSnapshotId((current) => current ?? snapshots[1].snapshot_id);
-    } else if (snapshots.length === 1) {
-      setToSnapshotId(snapshots[0].snapshot_id);
-      setFromSnapshotId(snapshots[0].snapshot_id);
-    } else {
-      setFromSnapshotId(null);
-      setToSnapshotId(null);
-    }
-  }, [snapshotsQuery.data]);
-
-  const targetTasks = useMemo(() => {
-    const tasks = tasksQuery.data ?? [];
-    return targetValue ? tasks.filter((task) => task.target === targetValue) : tasks;
-  }, [tasksQuery.data, targetValue]);
-
-  async function handleRollback(snapshotId: string) {
-    if (!targetValue) return;
-    try {
-      setBusySnapshot(snapshotId);
-      setError(null);
-      setMessage(null);
-      await rollbackTarget(targetValue, snapshotId);
-      setMessage(t("history.restored", { target: targetValue, snapshot: snapshotId }));
-      await Promise.all([
-        snapshotsQuery.refetch(),
-        targetsQuery.refetch(),
-        queryClient.invalidateQueries({ queryKey: ["target", targetValue] }),
-        queryClient.invalidateQueries({ queryKey: ["target-preview", targetValue] }),
-        queryClient.invalidateQueries({ queryKey: ["target-diff", targetValue] }),
-      ]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("error.snapshot_restore_failed"));
-    } finally {
-      setBusySnapshot(null);
-    }
-  }
+  const chips: { key: StatusFilter; label: string; count: number }[] = [
+    { key: "all", label: t("task.filter_all"), count: counts.all },
+    { key: "run", label: t("task.filter_running"), count: counts.run },
+    { key: "queue", label: t("task.filter_queued"), count: counts.queue },
+    { key: "done", label: t("task.filter_done"), count: counts.done },
+    { key: "fail", label: t("task.filter_failed"), count: counts.fail },
+  ];
 
   return (
-    <section className="history-page">
-      <SectionCard
-        title={t("history.title")}
-        aside={<span className="status-badge">{t("history.tasks_count", { count: String(targetTasks.length) })}</span>}
-      >
-        <label className="field">
-          <span>{t("risk.target")}</span>
-          <select
-            value={targetValue ?? ""}
-            onChange={(event) => {
-              const value = event.target.value || null;
-              setLocalTarget(value ?? "");
-              onSelectTarget(value);
-              setMessage(null);
-              setError(null);
-            }}
-          >
-            <option value="">{t("boundary.all_targets")}</option>
-            {targetsQuery.data?.map((target) => (
-              <option key={target.target} value={target.target}>
-                {target.target}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div className="history-summary-grid">
-          <article className="stat">
-            <span className="stat-label">{t("history.tasks")}</span>
-            <strong>{targetTasks.length}</strong>
-          </article>
-          <article className="stat">
-            <span className="stat-label">{t("history.targets")}</span>
-            <strong>{targetsQuery.data?.length ?? 0}</strong>
-          </article>
-          <article className="stat">
-            <span className="stat-label">{t("history.snapshots")}</span>
-            <strong>{snapshotsQuery.data?.length ?? 0}</strong>
-          </article>
+    <div>
+      <div className="vw-page-head">
+        <div>
+          <h1>{t("task.title")}</h1>
+          <p>{t("task.subtitle")}</p>
         </div>
-
-        {message && <div className="success-box">{message}</div>}
-        {error && <div className="error-box">{error}</div>}
-      </SectionCard>
-
-      <div className="history-grid">
-        <SectionCard title={t("history.tasks")}>
-          <div className="list list-scroll history-list">
-            {targetTasks.slice(0, 18).map((task) => (
-              <article key={task.task_id} className="list-item history-task-item">
-                <strong>{formatTaskTitle(task.command, task.target)}</strong>
-                <span>{formatTaskStatus(task.status)}</span>
-                <span className="muted-inline">{formatPhaseLabel(task.latest_phase)}</span>
-                <span className="muted-inline">{formatTime(task.created_at, t)}</span>
-                <div className="button-row compact-row">
-                  <button className="secondary-btn" type="button" onClick={() => onOpenTarget(task.target)}>
-                    {t("history.open_results")}
-                  </button>
-                  <button className="secondary-btn" type="button" onClick={() => onOpenReports(task.target)}>
-                    {t("history.open_reports")}
-                  </button>
-                </div>
-              </article>
-            ))}
-            {!targetTasks.length && (
-              <div className="empty-state history-empty-state">
-                <strong>{t("history.no_task_history")}</strong>
-                <button className="secondary-btn" onClick={onOpenHome} type="button">
-                  {t("history.new_scan")}
-                </button>
-              </div>
-            )}
-          </div>
-        </SectionCard>
-
-        <SectionCard title={t("history.targets")}>
-          <div className="list list-scroll history-list">
-            {targetsQuery.data?.slice(0, 18).map((target) => (
-              <article key={target.target} className={`list-item ${targetValue === target.target ? "selected-item" : ""}`}>
-                <strong>{target.target}</strong>
-                <span>{t("history.verified_pending", { verified: String(target.verified_count), pending: String(target.pending_count) })}</span>
-                <span className="muted-inline">{formatResumeStrategy(target.resume_strategy)}</span>
-                <div className="button-row compact-row">
-                  <button className="secondary-btn" type="button" onClick={() => { onSelectTarget(target.target); onOpenTarget(target.target); }}>
-                    {t("history.open_results")}
-                  </button>
-                  <button className="secondary-btn" type="button" onClick={() => onOpenReports(target.target)}>
-                    {t("history.open_reports")}
-                  </button>
-                </div>
-              </article>
-            ))}
-            {!targetsQuery.data?.length && (
-              <div className="empty-state history-empty-state">
-                <strong>{t("history.no_target_state")}</strong>
-                <button className="secondary-btn" onClick={onOpenHome} type="button">
-                  {t("history.new_scan")}
-                </button>
-              </div>
-            )}
-          </div>
-        </SectionCard>
+        <button className="vw-btn vw-btn-primary" type="button" onClick={onNewTask}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M12 5v14M5 12h14" /></svg>
+          {t("task.new_task")}
+        </button>
       </div>
 
-      <div className="history-grid">
-        <SectionCard title={t("history.snapshots")}>
-          <div className="list list-scroll history-list">
-            {snapshotsQuery.data?.map((snapshot) => (
-              <div key={snapshot.snapshot_id} className="list-item">
-                <strong>{snapshot.snapshot_id}</strong>
-                <span>{formatTaskCommand(snapshot.last_command)}</span>
-                <span className="muted-inline">{formatTime(snapshot.last_saved_at, t)}</span>
-                <span className="muted-inline">{t("history.snapshot_detail", { verified: String(snapshot.verified_findings), pending: String(snapshot.pending_findings) })}</span>
-                <div className="button-row compact-row">
-                  <button
-                    className="secondary-btn"
-                    disabled={busySnapshot === snapshot.snapshot_id}
-                    onClick={() => setPendingRollbackId(snapshot.snapshot_id)}
-                    type="button"
-                  >
-                    {busySnapshot === snapshot.snapshot_id ? t("history.restoring") : t("history.restore")}
-                  </button>
-                </div>
-              </div>
-            ))}
-            {!snapshotsQuery.data?.length && (
-              <div className="empty-state">{targetValue ? t("history.no_snapshots") : t("history.choose_target_snapshots")}</div>
-            )}
-          </div>
-        </SectionCard>
+      <div className="vw-toolbar">
+        <input
+          className="vw-input"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t("task.search_ph")}
+        />
+        {chips.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            className={`vw-chip ${filter === c.key ? "on" : ""}`}
+            onClick={() => setFilter(c.key)}
+          >
+            {c.label}<b>{c.count}</b>
+          </button>
+        ))}
+      </div>
 
-        <SectionCard title={t("history.diff")}>
-          <div className="form-grid compact-form">
-            <label className="field">
-              <span>{t("history.from")}</span>
-              <select value={fromSnapshotId ?? ""} onChange={(event) => setFromSnapshotId(event.target.value || null)}>
-                <option value="">{t("history.select")}</option>
-                {snapshotsQuery.data?.map((snapshot) => (
-                  <option key={`from-${snapshot.snapshot_id}`} value={snapshot.snapshot_id}>
-                    {snapshot.snapshot_id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>{t("history.to")}</span>
-              <select value={toSnapshotId ?? ""} onChange={(event) => setToSnapshotId(event.target.value || null)}>
-                <option value="">{t("history.current")}</option>
-                {snapshotsQuery.data?.map((snapshot) => (
-                  <option key={`to-${snapshot.snapshot_id}`} value={snapshot.snapshot_id}>
-                    {snapshot.snapshot_id}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+      {tasksQuery.isError && <div className="vw-err">{t("task.load_failed")}</div>}
 
-          {diffQuery.data ? (
-            <div className="list dense-list">
-              <div className="history-diff-summary">
-                <strong>{diffConclusion(diffQuery.data, t)}</strong>
-                <div>
-                  <span>{t("risk.findings")} {diffQuery.data.added_findings.length}</span>
-                  <span>{t("history.updated_findings")} {diffQuery.data.updated_findings.length}</span>
-                  <span>{t("history.added_steps")} {diffQuery.data.added_steps.length}</span>
-                  <span>{t("history.added_assets")} {diffQuery.data.added_recon_assets.length}</span>
-                </div>
-              </div>
-              <div className="list-item">
-                <strong>{t("history.added_findings")}</strong>
-                {diffQuery.data.added_findings.length ? diffQuery.data.added_findings.map((item) => <span key={item}>{item}</span>) : <span className="muted-inline">{t("history.none")}</span>}
-              </div>
-              <div className="list-item">
-                <strong>{t("history.updated_findings")}</strong>
-                {diffQuery.data.updated_findings.length ? diffQuery.data.updated_findings.map((item) => <span key={item}>{item}</span>) : <span className="muted-inline">{t("history.none")}</span>}
-              </div>
-              <div className="list-item">
-                <strong>{t("history.added_steps")}</strong>
-                {diffQuery.data.added_steps.length ? diffQuery.data.added_steps.map((item) => <span key={item}>{item}</span>) : <span className="muted-inline">{t("history.none")}</span>}
-              </div>
-              <div className="list-item">
-                <strong>{t("history.added_assets")}</strong>
-                {diffQuery.data.added_recon_assets.length ? diffQuery.data.added_recon_assets.map((item) => <span key={item}>{item}</span>) : <span className="muted-inline">{t("history.none")}</span>}
-              </div>
+      <div className="vw-tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{t("task.col_task")}</th>
+              <th>{t("task.col_strategy")}</th>
+              <th>{t("task.col_progress")}</th>
+              <th>{t("task.col_findings")}</th>
+              <th>{t("task.col_status")}</th>
+              <th>{t("task.col_elapsed")}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {tasks.map((x) => {
+              const findings = x.summary ? (x.summary.verified_count ?? 0) + (x.summary.pending_count ?? 0) : null;
+              return (
+                <tr key={x.task_id} className="vw-row" onClick={() => onOpenTask(x)}>
+                  <td>
+                    <div className="vw-t-title">{x.target} · {formatTaskCommand(x.command)}</div>
+                    <div className="vw-t-sub">{x.task_id.slice(0, 8)}</div>
+                  </td>
+                  <td style={{ color: "var(--muted)" }}>{formatTaskCommand(x.command)}</td>
+                  <td><MiniPipeline task={x} /></td>
+                  <td>{findings === null ? <span style={{ color: "var(--faint)" }}>—</span> : <span className="vw-badge vw-b-fail">{findings}</span>}</td>
+                  <td>
+                    <span className={`vw-badge ${statusBadge(x.status)}`}>
+                      {isRunningLike(x.status) && <span className="dot" />}
+                      {formatTaskStatus(x.status)}
+                    </span>
+                  </td>
+                  <td className="vw-mono" style={{ color: "var(--muted)" }}>{formatElapsed(x, t)}</td>
+                  <td><button className="vw-btn vw-btn-ghost vw-btn-xs" type="button">{t("task.view")}</button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {!tasksQuery.isLoading && tasks.length === 0 && (
+          <div className="vw-empty">
+            {t("task.empty")}
+            <div style={{ marginTop: 12 }}>
+              <button className="vw-btn vw-btn-primary vw-btn-sm" type="button" onClick={onNewTask}>{t("task.new_task")}</button>
             </div>
-          ) : (
-            <div className="empty-state">{diffQuery.isLoading ? t("history.loading_diff") : t("history.pick_snapshots")}</div>
-          )}
-        </SectionCard>
+          </div>
+        )}
       </div>
-
-      <ConfirmDialog
-        open={Boolean(pendingRollbackId)}
-        title={t("history.confirm_restore_title")}
-        copy={t("history.confirm_restore_copy")}
-        tone="danger"
-        confirmLabel={t("history.restore")}
-        onCancel={() => setPendingRollbackId(null)}
-        onConfirm={() => {
-          const snapshotId = pendingRollbackId;
-          setPendingRollbackId(null);
-          if (snapshotId) void handleRollback(snapshotId);
-        }}
-      />
-    </section>
+    </div>
   );
 }

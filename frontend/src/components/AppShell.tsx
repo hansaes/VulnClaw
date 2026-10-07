@@ -1,133 +1,85 @@
 import type { ReactNode } from "react";
-import type { TaskEvent, TaskRecord } from "../types/api";
+import type { TaskRecord } from "../types/api";
 import { useT } from "../i18n";
-import { ActiveTaskBanner } from "./ActiveTaskBanner";
 import { Sidebar, type NavItem } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
-interface ViewMeta {
-  eyebrow: string;
-  title: string;
-  copy: string;
-}
-
-export interface ShellAction {
-  label: string;
-  /** Visual cue for the action rail / footer (label remains the a11y name). */
-  icon: string;
-  onClick: () => void;
-  active?: boolean;
-  disabled?: boolean;
-}
-
 interface AppShellProps<T extends string> {
   activeView: T;
-  activeNavView?: T;
   nav: NavItem<T>[];
-  meta: ViewMeta;
-  quickActions: ShellAction[];
-  sidebarActions: ShellAction[];
+  crumb: string;
   backendUnavailable?: boolean;
   backendError?: string;
   onRetryBackend?: () => void;
-  selectedTarget: string | null;
+  targetCount?: number;
   activeTask: TaskRecord | null;
-  latestEvent: TaskEvent | null;
   onSelectView: (view: T) => void;
-  onOpenAdvanced: () => void;
-  onOpenBoundary: () => void;
-  onOpenReports: () => void;
-  onOpenTarget: (target: string) => void;
+  onOpenTaskDetail: () => void;
   onStopTask: () => void;
   children: ReactNode;
 }
 
 export function AppShell<T extends string>({
   activeView,
-  activeNavView,
   nav,
-  meta,
-  quickActions,
-  sidebarActions,
+  crumb,
   backendUnavailable = false,
   backendError,
   onRetryBackend,
-  selectedTarget,
+  targetCount,
   activeTask,
-  latestEvent,
   onSelectView,
-  onOpenAdvanced,
-  onOpenBoundary,
-  onOpenReports,
-  onOpenTarget,
+  onOpenTaskDetail,
   onStopTask,
   children,
 }: AppShellProps<T>) {
   const { t } = useT();
+  const taskRunning = activeTask?.status === "running" || activeTask?.status === "pending";
 
   return (
-    <div className="app-shell">
-      <Sidebar
-        activeView={activeView}
-        activeNavView={activeNavView}
-        nav={nav}
-        footerActions={sidebarActions}
-        onSelectView={onSelectView}
-      />
-      <main className="workspace">
+    <div className="vw-app">
+      <Sidebar activeView={activeView} nav={nav} onSelectView={onSelectView} />
+      <div className="vw-main">
         <Topbar
-          eyebrow={meta.eyebrow}
-          title={meta.title}
-          copy={meta.copy}
-          selectedTarget={selectedTarget}
-          activeTaskStatus={activeTask?.status}
+          crumb={crumb}
+          taskRunning={taskRunning}
+          taskStatus={activeTask?.status}
+          targetCount={targetCount}
         />
         {backendUnavailable && (
-          <section className="connection-banner" role="status">
-            <div>
-              <strong>{t("shell.backend_unavailable")}</strong>
-              <span>
-                {t("shell.backend_hint")}
-              </span>
-              {backendError && <small>{backendError}</small>}
-            </div>
-            {onRetryBackend && (
-              <button className="secondary-btn" onClick={onRetryBackend} type="button">
-                {t("shell.retry")}
-              </button>
-            )}
-          </section>
+          <div style={{ padding: "16px 28px 0" }}>
+            <section className="vw-conn-banner" role="status" style={{ margin: 0 }}>
+              <div>
+                <strong>{t("shell.backend_unavailable")}</strong>
+                <span>{t("shell.backend_hint")}{backendError ? ` · ${backendError}` : ""}</span>
+              </div>
+              {onRetryBackend && (
+                <button className="vw-btn vw-btn-ghost vw-btn-sm" onClick={onRetryBackend} type="button">
+                  {t("shell.retry")}
+                </button>
+              )}
+            </section>
+          </div>
         )}
-        <ActiveTaskBanner
-          task={activeTask}
-          latestEvent={latestEvent}
-          onOpenAdvanced={onOpenAdvanced}
-          onOpenBoundary={onOpenBoundary}
-          onOpenReports={onOpenReports}
-          onOpenTarget={onOpenTarget}
-          onStop={onStopTask}
-        />
-        <div className="view-mount">{children}</div>
-      </main>
-      <aside className="quick-rail" aria-label={t("shell.quick_actions")}>
-        <div className="rail-heading" aria-hidden="true">{t("shell.quick_actions")}</div>
-        <div className="quick-rail-main">
-          {quickActions.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              className={item.active ? "active" : ""}
-              title={item.label}
-              aria-label={item.label}
-              disabled={item.disabled}
-              onClick={item.onClick}
-            >
-              <img className="rail-icon" src={item.icon} alt="" aria-hidden="true" />
-              <span className="rail-caption" aria-hidden="true">{item.label}</span>
-            </button>
-          ))}
-        </div>
-      </aside>
+        {taskRunning && activeTask && (
+          <div style={{ padding: "16px 28px 0" }}>
+            <div className="vw-task-banner" style={{ margin: 0 }}>
+              <span className="vw-badge vw-b-run"><span className="dot" />{t("shell.task_running")}</span>
+              <div className="grow">
+                <div className="tt vw-mono">{activeTask.target}</div>
+                <div className="ts">{activeTask.task_id}</div>
+              </div>
+              <button type="button" className="vw-btn vw-btn-ghost vw-btn-xs" onClick={onOpenTaskDetail}>
+                {t("shell.view_task")}
+              </button>
+              <button type="button" className="vw-btn vw-btn-danger vw-btn-xs" onClick={onStopTask}>
+                {t("shell.stop")}
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="vw-content">{children}</div>
+      </div>
     </div>
   );
 }
