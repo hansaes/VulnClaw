@@ -159,3 +159,85 @@ ip = "1.2.3.4"
 # 也可以通过 crt.sh 查询同 IP 的证书
 r = requests.get(f"https://crt.sh/?q={ip}&output=json")
 ```
+
+---
+
+## 附：高价值探测弹药库（Claude-OSINT offensive-osint 精华）
+
+> 对每个存活 Web 应用都跑一遍，便宜且高信号。
+
+### A. API 文档发现路径
+
+**Swagger / OpenAPI**（无鉴权可达 = HIGH）：
+```
+swagger.json  swagger.yaml  swagger/v1/swagger.json  swagger-ui.html  swagger-ui/
+api-docs  api-docs.json  api/swagger  api/swagger.json  api/swagger-ui.html
+v2/api-docs  v3/api-docs  openapi.json  openapi.yaml  docs  redoc
+api/docs  api/documentation  .well-known/openapi
+```
+
+**GraphQL**（introspection 无鉴权返回 schema = HIGH）：
+```
+graphql  graphiql  api/graphql  v1/graphql  gql  altair  playground
+api/query  graphql/console  api/v1/graphql
+```
+标准 introspection POST body：
+```json
+{"operationName":"IntrospectionQuery","query":"query IntrospectionQuery { __schema { types { name kind fields { name } } } }"}
+```
+注意：即使 introspection 被禁，field-suggestion（"did you mean"）也可反推部分 schema。
+
+### B. 常开高危路径检查（15 个必查）
+
+| 路径 | 发现 | 严重度 | 判定 |
+|------|------|--------|------|
+| `/.git/config` | Git 仓库泄露 | CRITICAL | 响应含 `[core]` / `repositoryformatversion` |
+| `/.git/HEAD` | Git HEAD 泄露 | HIGH | 响应匹配 `^ref:\s` |
+| `/.env` | 环境变量泄露 | CRITICAL | 多行匹配 `^\s*[A-Z_][A-Z0-9_]*\s*=` |
+| `/server-status` | Apache 状态页 | MEDIUM | 含 `Apache Server Status` |
+| `/phpinfo.php`、`/info.php` | phpinfo 泄露 | HIGH | 含 `PHP Version` |
+| `/actuator/env` | Spring Boot env | CRITICAL | 含 `propertySources` |
+| `/actuator/heapdump` | Spring Boot 堆转储 | CRITICAL | HPROF 魔数 / 大二进制下载 |
+| `/_cat/indices` | ES 未授权 | HIGH | 返回索引列表 |
+| `/manager/html` | Tomcat 管理页 | HIGH | 含 `Tomcat Web Application Manager` |
+| `/.DS_Store` | macOS 元文件 | LOW | 字节签名 `\x00\x00\x00\x01Bud1` |
+
+### C. JS 端点提取（三级正则）
+
+对每个 JS 文件和 sourcemap 按序执行：
+
+**Tier 1 — 通用引号路径**（高召回， downstream 过滤）：
+```regex
+['"](/[A-Za-z0-9_\-./{}\[\]?=&%:]+)['"`]
+```
+
+**Tier 2 — API 特征路径**（在 Tier 1 结果上过滤）：
+```regex
+['"`](/(?:api|graphql|gql|v\d+|swagger|openapi|rest|services|internal|admin|auth|oauth|user|users|account|accounts|search|export|upload|file|files|download|webhook|hooks|callback)/[A-Za-z0-9_\-./{}\[\]?=&%:]+)['"`]
+```
+
+**Tier 3 — 全限定 URL**：
+```regex
+\bhttps?://[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(?::\d+)?[/A-Za-z0-9_\-./{}\[\]?=&%:#]*
+```
+
+去重键：`(method, 归一化路径模板)`，模板把 `/123/` 替换为 `/{id}/`。
+
+### D. 子域名接管指纹（CNAME 目标 + 可接管响应特征）
+
+| 服务商 | CNAME 模式 | 接管特征响应 |
+|--------|-----------|-------------|
+| GitHub Pages | `*.github.io` | `There isn't a GitHub Pages site here.` |
+| Heroku | `*.herokuapp.com` | `No such app` |
+| AWS S3 | `*.s3*.amazonaws.com` | `NoSuchBucket` |
+| AWS CloudFront | `*.cloudfront.net` | `Bad request` + X-Amz 错误头 |
+| Azure | `*.azurewebsites.net` / `*.blob.core.windows.net` | 各产品 404 特征 |
+| Shopify | `shops.myshopify.com` | `Sorry, this shop is currently unavailable.` |
+| WordPress | `*.wordpress.com` | `Do you want to register *.wordpress.com?` |
+| Tumblr | `*.tumblr.com` | `Whatever you were looking for doesn't currently exist.` |
+
+### E. 云存储桶排列
+
+前缀：`(空)`、`backup-`、`assets-`、`static-`、`dev-`、`prod-`
+后缀：`(空)`、`-backup`、`-assets`、`-static`、`-dev`、`-prod`、`-bak`、`-old`
+组合 `{前缀}{域名关键词}{后缀}` 逐一探测，记录可列举（listable）的桶。
