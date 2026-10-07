@@ -236,6 +236,13 @@ export function getTarget(target: string): Promise<TargetView> {
   return requestJson<TargetView>(`/api/targets/${encodeURIComponent(target)}`);
 }
 
+export function rejectFinding(target: string, findingId: string, reason = ""): Promise<TargetView> {
+  return requestJson<TargetView>(
+    `/api/targets/${encodeURIComponent(target)}/findings/${encodeURIComponent(findingId)}/reject`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
+}
+
 export function getTargetSnapshots(target: string): Promise<TargetSnapshotView[]> {
   return requestJson<TargetSnapshotView[]>(`/api/targets/${encodeURIComponent(target)}/snapshots`);
 }
@@ -316,14 +323,46 @@ export function openTaskStream(taskId: string, onEvent: (event: TaskEvent) => vo
     }
   };
 
-  source.addEventListener("task_created", handler as EventListener);
-  source.addEventListener("task_started", handler as EventListener);
-  source.addEventListener("task_state_changed", handler as EventListener);
-  source.addEventListener("round_output", handler as EventListener);
-  source.addEventListener("cycle_completed", handler as EventListener);
-  source.addEventListener("task_completed", handler as EventListener);
-  source.addEventListener("task_failed", handler as EventListener);
-  source.addEventListener("task_stopped", handler as EventListener);
+  // The backend names every frame (``event: <kind>``), so ``onmessage`` only
+  // receives frames without an explicit event name. Keep this list in sync
+  // with the task service's solve/stream callbacks; otherwise the browser
+  // silently drops the agent/tool frames and a finished task appears to have
+  // only task_created/task_started/task_completed in its console.
+  const eventKinds = [
+    "task_created",
+    "task_restoring",
+    "task_started",
+    "task_state_changed",
+    "legacy_import",
+    "memory_loaded",
+    "memory_recorded",
+    "agent_status",
+    "agent_stream",
+    "agent_step",
+    "agent_observation",
+    "agent_tool",
+    "agent_tool_result",
+    "finding",
+    "subagent",
+    "group_progress",
+    "ask_user",
+    "ask_user_suppressed",
+    "ask_user_rejected",
+    "no_path",
+    "no_path_rejected",
+    "refusal_rescoped",
+    "completed",
+    "complete_rejected",
+    "error",
+    "round_output",
+    "cycle_completed",
+    "task_completed",
+    "task_failed",
+    "task_stopped",
+  ];
+  for (const eventKind of eventKinds) {
+    source.addEventListener(eventKind, handler as EventListener);
+  }
   source.onmessage = handler;
   return source;
 }

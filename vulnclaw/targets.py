@@ -69,6 +69,25 @@ def legacy_target_state_key(raw: str) -> str:
     return target_state_key(raw)
 
 
+def target_experience_key(value: str | Target) -> str:
+    """Return the stable memory identity for a target engagement.
+
+    Experience is attached to a domain, so ``example.com`` and
+    ``https://example.com/app`` must share lessons even though run state keeps
+    their full URL identities separate.  Non-web targets retain their normal
+    canonical target id.
+    """
+    target = value if isinstance(value, Target) else parse_target(value)
+    if target.kind in {"domain", "web_url"}:
+        host = target.canonical
+        if target.kind == "web_url":
+            parsed = urlsplit(target.canonical)
+            host = parsed.hostname or target.canonical
+        host_target = parse_target(host, target_type="domain")
+        return host_target.target_id
+    return target.target_id
+
+
 def build_targets(
     primary: str | None,
     additional: Sequence[str] | None = None,

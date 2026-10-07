@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
@@ -26,6 +27,9 @@ from vulnclaw.target_state.store import (
     save_target_state,
 )
 from vulnclaw.targets import Target, build_targets
+from vulnclaw.targets import target_experience_key
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -90,6 +94,10 @@ async def run_agent_task(
             raise RunCorruptError(Path("."), "resume run context was not loaded")
         targets = _targets_from_run_context(run_context)
         target = targets[0].raw
+        # The caller may pass a placeholder target when resuming by run name.
+        # Use the manifest target for restore and completion memory so lessons
+        # stay attached to the actual domain that was scanned.
+        primary_target = targets[0]
 
     restore_result = None
     if before_restore is not None:
@@ -215,29 +223,37 @@ def _schedule_completed_run_distillation(
         from vulnclaw.agent.distiller import (
             RunArtifacts,
             configured_distiller,
+            persist_run_memory,
             schedule_run_distillation,
         )
         from vulnclaw.config.token_provider import has_llm_credentials
         from vulnclaw.feedback import feedback_for_distillation
         from vulnclaw.kb.experience import ExperienceStore
 
-        if not has_llm_credentials(agent.config.llm):
-            run_context.append_event("distillation_skipped", {"reason": "missing_llm_credentials"})
-            return
         artifacts = RunArtifacts.from_session(
             run_context.run_name,
             agent.session_state,
-            target_key=target.target_id,
+            target_key=target_experience_key(target),
             feedback=feedback_for_distillation(run_context.run_dir),
         )
+        store = ExperienceStore()
+        # Persist structured facts even when no model credentials are present.
+        # This is what makes a later scan of the same domain pick up verified
+        # findings, false positives, and reusable/dead-end paths reliably.
+        memory = persist_run_memory(artifacts, store)
+        run_context.append_event("memory_recorded", {"lessons": len(memory)})
+        if not has_llm_credentials(getattr(agent.config, "llm", None)):
+            run_context.append_event("distillation_skipped", {"reason": "missing_llm_credentials"})
+            return
         schedule_run_distillation(
             artifacts=artifacts,
             llm=configured_distiller(agent.config),
-            store=ExperienceStore(),
+            store=store,
             run_context=run_context,
         )
     except Exception as exc:
         # Completion is already durable. Any learning failure is diagnostic-only.
+        logger.warning("completed run memory/distillation failed: %s", exc, exc_info=True)
         try:
             run_context.append_event("distillation_failed", {"error": type(exc).__name__})
         except Exception:

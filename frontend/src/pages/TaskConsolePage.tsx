@@ -57,7 +57,7 @@ function buildTimeline(list: TaskEvent[]): TimelineItem[] {
 const KEY_EVENT_KINDS = new Set([
   "error", "ask_user", "ask_user_rejected", "no_path", "no_path_rejected",
   "completed", "complete_rejected", "task_failed", "task_stopped",
-  "task_completed", "cycle_completed",
+  "task_completed", "cycle_completed", "finding", "memory_loaded", "memory_recorded",
 ]);
 
 interface TaskConsolePageProps {
@@ -89,12 +89,18 @@ function stringField(item: TaskEvent, key: string): string {
 }
 
 function eventText(item: TaskEvent): string {
+  if (item.event === "finding") {
+    const finding = item.payload.finding;
+    if (finding && typeof finding === "object" && "title" in finding && typeof finding.title === "string") {
+      return `Finding: ${finding.title}`;
+    }
+  }
   if (item.event === "agent_tool") {
     const tool = stringField(item, "tool");
     const args = stringField(item, "args");
     if (tool) return args ? `${tool}(${args})` : tool;
   }
-  for (const key of ["text", "message", "reason", "question", "error"]) {
+  for (const key of ["text", "message", "reason", "question", "reply", "result", "error"]) {
     const value = item.payload[key];
     if (typeof value === "string" && value.trim()) return value.trim();
   }
@@ -277,7 +283,13 @@ export function TaskConsolePage({ activeTask, events, tasks, onSelectTask, onNew
   }
 
   const findings = activeTask?.summary
-    ? (activeTask.summary.verified_count ?? 0) + (activeTask.summary.pending_count ?? 0)
+    ? Math.max(
+        activeTask.summary.findings_count ?? 0,
+        (activeTask.summary.verified_count ?? 0)
+          + (activeTask.summary.pending_count ?? 0)
+          + (activeTask.summary.candidate_count ?? 0)
+          + (activeTask.summary.quarantined_count ?? 0),
+      )
     : null;
   const stoppable = activeTask?.status === "running" || activeTask?.status === "pending";
 

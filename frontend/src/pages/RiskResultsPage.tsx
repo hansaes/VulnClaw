@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { generateTargetReport } from "../api/web";
+import { useQueryClient } from "@tanstack/react-query";
+import { generateTargetReport, rejectFinding } from "../api/web";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useTargetsQuery } from "../hooks/queries";
 import { useT, type TFunction } from "../i18n";
@@ -21,7 +22,7 @@ interface Finding {
   title: string;
   severity: string;
   sevKey: "critical" | "high" | "medium" | "low" | "info";
-  statusKey: "pending" | "verified" | "manual" | "ignored";
+  statusKey: "pending" | "verified" | "manual" | "ignored" | "false_positive";
   statusRaw: string;
   evidence: string;
   impact: string;
@@ -52,7 +53,8 @@ function normalizeSeverity(value: unknown): { label: string; key: Finding["sevKe
 function normalizeStatusKey(value: unknown): Finding["statusKey"] {
   const text = asText(value, "pending").toLowerCase();
   if (text.includes("verif")) return "verified";
-  if (text.includes("dismiss") || text.includes("false")) return "ignored";
+  if (text.includes("false") || text.includes("reject")) return "false_positive";
+  if (text.includes("dismiss")) return "ignored";
   if (text.includes("manual")) return "manual";
   return "pending";
 }
@@ -113,17 +115,21 @@ const SEV_ORDER: Record<Finding["sevKey"], number> = { critical: 0, high: 1, med
 
 export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, onOpenReports, onCreateTask, onVerifyDone, onBulkVerifyDone }: RiskResultsPageProps) {
   const { t } = useT();
+  const queryClient = useQueryClient();
   const targetsQuery = useTargetsQuery();
 
   const [sevFilter, setSevFilter] = useState<string>("all");
   const [stFilter, setStFilter] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [checked, setChecked] = useState<Record<string, boolean>>({});
+  // Groups start collapsed so the page stays scannable when several targets
+  // have findings.  An explicit entry records any user toggle.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [drawer, setDrawer] = useState<Finding | null>(null);
   const [verifyList, setVerifyList] = useState<Finding[] | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [busyReport, setBusyReport] = useState(false);
+  const [markingFalse, setMarkingFalse] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -172,6 +178,10 @@ export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, on
       }
       return next;
     });
+  }
+
+  function toggleGroup(target: string) {
+    setCollapsed((prev) => ({ ...prev, [target]: !(prev[target] ?? true) }));
   }
 
   async function handleVerify(list: Finding[]) {
@@ -226,12 +236,29 @@ export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, on
     { key: "verified", label: t("vuln.st_verified") },
     { key: "manual", label: t("vuln.st_manual") },
     { key: "ignored", label: t("vuln.st_ignored") },
+    { key: "false_positive", label: t("vuln.st_false") },
   ];
   const stBadge: Record<Finding["statusKey"], string> = {
-    pending: "vw-st-open", verified: "vw-st-confirmed", manual: "vw-st-fixing", ignored: "vw-st-ignored",
+    pending: "vw-st-open", verified: "vw-st-confirmed", manual: "vw-st-fixing", ignored: "vw-st-ignored", false_positive: "vw-st-false",
   };
 
   const verifyCves = (verifyList ?? []).map((f) => f.cve).filter(Boolean) as string[];
+
+  async function handleMarkFalse(finding: Finding) {
+    if (markingFalse) return;
+    setMarkingFalse(finding.id);
+    setError(null);
+    try {
+      await rejectFinding(finding.target, finding.id, t("vuln.false_positive_reason"));
+      await queryClient.invalidateQueries({ queryKey: ["targets"] });
+      setDrawer(null);
+      setNotice(t("vuln.marked_false_positive"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("vuln.mark_false_failed"));
+    } finally {
+      setMarkingFalse(null);
+    }
+  }
 
   return (
     <div>
@@ -291,17 +318,18 @@ export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, on
       </div>
 
       {groups.map((group) => {
-        const isCollapsed = Boolean(collapsed[group.target]);
+        const isCollapsed = collapsed[group.target] ?? true;
         const groupAllChecked = group.findings.every((f) => checked[f.id]);
         const crit = group.findings.filter((f) => f.sevKey === "critical" || f.sevKey === "high").length;
         return (
           <div className="vw-tbl-wrap" key={group.target} style={{ marginBottom: 16 }}>
             <div
               className="vw-group-head"
-              onClick={() => setCollapsed((p) => ({ ...p, [group.target]: !p[group.target] }))}
+              onClick={() => toggleGroup(group.target)}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => e.key === "Enter" && setCollapsed((p) => ({ ...p, [group.target]: !p[group.target] }))}
+              aria-expanded={!isCollapsed}
+              onKeyDown={(e) => e.key === "Enter" && toggleGroup(group.target)}
             >
               <span onClick={(e) => e.stopPropagation()}>
                 <input
@@ -345,12 +373,14 @@ export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, on
                       <td style={{ color: "var(--muted)" }}>{f.type || "—"}</td>
                       <td><span className={`vw-st ${stBadge[f.statusKey]}`}>{formatFindingStatus(f.statusRaw || f.statusKey)}</span></td>
                       <td style={{ whiteSpace: "nowrap" }}>
-                        <button
-                          className="vw-btn vw-btn-ghost vw-btn-xs" type="button"
-                          onClick={(e) => { e.stopPropagation(); setVerifyList([f]); }}
-                        >
-                          {t("vuln.verify")}
-                        </button>
+                        {f.statusKey !== "false_positive" && (
+                          <button
+                            className="vw-btn vw-btn-ghost vw-btn-xs" type="button"
+                            onClick={(e) => { e.stopPropagation(); setVerifyList([f]); }}
+                          >
+                            {t("vuln.verify")}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -432,9 +462,21 @@ export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, on
               )}
             </div>
             <div className="vw-drawer-foot">
-              <button className="vw-btn vw-btn-primary vw-btn-sm" type="button" onClick={() => { setDrawer(null); setVerifyList([drawer]); }}>
-                {t("vuln.verify")}
-              </button>
+              {drawer.statusKey !== "false_positive" && (
+                <button className="vw-btn vw-btn-primary vw-btn-sm" type="button" onClick={() => { setDrawer(null); setVerifyList([drawer]); }}>
+                  {t("vuln.verify")}
+                </button>
+              )}
+              {drawer.statusKey !== "ignored" && drawer.statusKey !== "false_positive" && (
+                <button
+                  className="vw-btn vw-btn-ghost vw-btn-sm"
+                  type="button"
+                  disabled={markingFalse === drawer.id}
+                  onClick={() => void handleMarkFalse(drawer)}
+                >
+                  {markingFalse === drawer.id ? t("vuln.marking_false") : t("vuln.mark_false")}
+                </button>
+              )}
               <button className="vw-btn vw-btn-ghost vw-btn-sm" type="button" disabled={busyReport} onClick={() => handleGenerateReport(drawer)}>
                 {busyReport ? t("vuln.reporting") : t("vuln.gen_report")}
               </button>

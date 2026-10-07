@@ -151,7 +151,15 @@ export function HistoryPage({ onOpenTask, onNewTask }: HistoryPageProps) {
           </thead>
           <tbody>
             {tasks.map((x) => {
-              const findings = x.summary ? (x.summary.verified_count ?? 0) + (x.summary.pending_count ?? 0) : null;
+              const findings = x.summary
+                ? Math.max(
+                    x.summary.findings_count ?? 0,
+                    (x.summary.verified_count ?? 0)
+                      + (x.summary.pending_count ?? 0)
+                      + (x.summary.candidate_count ?? 0)
+                      + (x.summary.quarantined_count ?? 0),
+                  )
+                : null;
               return (
                 <tr key={x.task_id} className="vw-row" onClick={() => onOpenTask(x)}>
                   <td>

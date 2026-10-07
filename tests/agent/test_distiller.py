@@ -15,8 +15,10 @@ from vulnclaw.agent.distiller import (
     default_merge_threshold,
     distill_run,
     persist_distilled_lessons,
+    persist_run_memory,
     schedule_run_distillation,
 )
+from vulnclaw.agent.context import SessionState, VulnerabilityFinding
 from vulnclaw.agent.reasoning_state import AttackPath, PathStatus, ReasoningState
 from vulnclaw.kb.experience import ExperienceStore, LessonStatus
 
@@ -108,6 +110,35 @@ def test_distill_run_accepts_a_recorded_failed_path_as_provenance():
     assert lessons[0].evidence_refs.path == "sqli-union"
 
 
+def test_completed_run_persists_target_memory_without_an_llm(tmp_path: Path):
+    artifacts = RunArtifacts(
+        run_id="run-memory",
+        target_key="target-123",
+        verified_findings=[
+            {"finding_id": "finding-verified", "title": "SQLi", "vuln_type": "sqli"}
+        ],
+        rejected_findings=[
+            {
+                "finding_id": "finding-false",
+                "title": "False positive",
+                "verification_status": "rejected",
+            }
+        ],
+        reasoning_paths=[
+            {"name": "login-probe", "status": "success"},
+            {"name": "union-probe", "status": "failed"},
+        ],
+    )
+    store = ExperienceStore(tmp_path)
+
+    persisted = persist_run_memory(artifacts, store)
+
+    assert len(persisted) == 4
+    assert {lesson.status for lesson in persisted} == {LessonStatus.APPROVED}
+    assert {lesson.signal.value for lesson in persisted} == {"success", "deadend"}
+    assert all(lesson.target_key == "target-123" for lesson in persisted)
+
+
 def test_distill_run_accepts_a_failed_structured_reasoning_path_as_provenance():
     session = SimpleNamespace(
         findings=[],
@@ -139,6 +170,130 @@ def test_distill_run_accepts_a_failed_structured_reasoning_path_as_provenance():
     assert artifacts.failed_paths() == {"blocked-login-sqli"}
     assert len(lessons) == 1
     assert lessons[0].evidence_refs.path == "blocked-login-sqli"
+
+
+def test_run_artifacts_ignore_stale_reflexion_attribute_errors(monkeypatch):
+    """Optional reflexion enrichment cannot block completion memory."""
+
+    import vulnclaw.agent.reflexion as reflexion_module
+
+    def _broken_extract(_engine):
+        raise AttributeError("stale reflexion field")
+
+    monkeypatch.setattr(reflexion_module.ReflexionEngine, "extract_experience", _broken_extract)
+    session = SimpleNamespace(
+        findings=[],
+        step_records=[],
+        reasoning=ReasoningState(),
+        reflexion_snapshot={"attempts": []},
+        confirmed_facts=["server: nginx"],
+    )
+
+    artifacts = RunArtifacts.from_session("run-stale-reflexion", session, target_key="target-123")
+
+    assert artifacts.confirmed_facts == ["server: nginx"]
+    assert artifacts.reflexion_snapshot == {"attempts": []}
+
+
+def test_run_artifacts_include_rejected_findings_and_reusable_paths():
+    session = SessionState(target="https://example.com")
+    verified = VulnerabilityFinding(
+        title="SQL injection", vuln_type="sqli", evidence="verified", verified=True
+    )
+    rejected = VulnerabilityFinding(
+        title="False positive", vuln_type="xss", evidence="disproved", verification_status="rejected"
+    )
+    session.add_finding(verified)
+    session.add_finding(rejected)
+    session.reasoning.add_path("working-sqli", status="success")
+    session.reasoning.add_path("blocked-xss", status="failed")
+
+    artifacts = RunArtifacts.from_session("run-1", session, target_key="target-123")
+
+    assert artifacts.verified_finding_ids() == {"sqli"}
+    assert artifacts.rejected_finding_ids() == {"xss"}
+    assert artifacts.successful_paths() == {"working-sqli"}
+    assert artifacts.failed_paths() == {"blocked-xss"}
+
+
+def test_distill_run_accepts_rejected_finding_and_successful_path_provenance():
+    artifacts = RunArtifacts(
+        run_id="run-1",
+        target_key="target-123",
+        rejected_findings=[{"finding_id": "false-xss"}],
+        reasoning_paths=[{"name": "working-sqli", "status": "success"}],
+    )
+
+    lessons = distill_run(
+        artifacts,
+        lambda _payload: {
+            "lessons": [
+                {
+                    "scope": "target",
+                    "signal": "deadend",
+                    "tags": {},
+                    "context": "A candidate was disproved.",
+                    "lesson": "Treat this candidate as a false positive.",
+                    "confidence": 0.8,
+                    "evidence_refs": {"finding_id": "false-xss"},
+                },
+                {
+                    "scope": "target",
+                    "signal": "success",
+                    "tags": {},
+                    "context": "A path worked.",
+                    "lesson": "Reuse this path after revalidation.",
+                    "confidence": 0.8,
+                    "evidence_refs": {"path": "working-sqli"},
+                },
+            ]
+        },
+    )
+
+    assert len(lessons) == 2
+    assert {lesson.signal.value for lesson in lessons} == {"deadend", "success"}
+    assert {lesson.evidence_refs.finding_id for lesson in lessons} == {None, "false-xss"}
+    assert {lesson.evidence_refs.path for lesson in lessons} == {None, "working-sqli"}
+
+
+def test_persist_run_memory_writes_approved_target_lessons_without_llm(tmp_path: Path):
+    from vulnclaw.agent.distiller import persist_run_memory
+
+    artifacts = RunArtifacts(
+        run_id="run-1",
+        target_key="target-123",
+        verified_findings=[{"finding_id": "finding-1", "title": "SQLi", "vuln_type": "sqli"}],
+        rejected_findings=[{"finding_id": "false-1", "title": "False XSS", "vuln_type": "xss"}],
+        reasoning_paths=[
+            {"name": "working-sqli", "status": "success"},
+            {"name": "blocked-xss", "status": "failed"},
+        ],
+    )
+    store = ExperienceStore(tmp_path)
+
+    written = persist_run_memory(artifacts, store)
+
+    assert len(written) == 4
+    assert all(item.scope.value == "target" for item in written)
+    assert all(item.status is LessonStatus.APPROVED for item in written)
+    assert {item.signal.value for item in written} == {"success", "deadend"}
+    assert len(store.list_by_status("approved")) == 4
+
+
+def test_persist_run_memory_records_confirmed_facts(tmp_path: Path):
+    artifacts = RunArtifacts(
+        run_id="run-fact",
+        target_key="target-123",
+        confirmed_facts=["server: nginx", "server: nginx"],
+    )
+    store = ExperienceStore(tmp_path)
+
+    written = persist_run_memory(artifacts, store)
+
+    assert len(written) == 1
+    assert written[0].signal.value == "success"
+    assert written[0].evidence_refs.path == "fact:server: nginx"
+    assert written[0].status is LessonStatus.APPROVED
 
 
 def test_persist_distilled_lessons_merges_near_duplicates(tmp_path: Path):

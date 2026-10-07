@@ -10,6 +10,7 @@ browse and curate two kinds of memory:
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -19,8 +20,30 @@ from vulnclaw.kb.experience import (
     LessonSignal,
     LessonStatus,
 )
+from vulnclaw.targets import target_experience_key
 
 _store: ExperienceStore | None = None
+_TARGET_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+def _normalize_target_key(value: Any) -> str:
+    """Accept either a canonical target id or a user-entered domain/URL.
+
+    ExperienceStore stores target-scoped lessons under ``Target.target_id``
+    (the 16-character hash of the canonical target).  The Web form and API
+    naturally receive a domain or URL, so normalizing at this boundary keeps
+    manually-created lessons retrievable by the next task and makes filters
+    behave the same for both representations.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if _TARGET_ID_RE.fullmatch(raw.lower()):
+        return raw.lower()
+    try:
+        return target_experience_key(raw)
+    except ValueError:
+        return raw
 
 
 def _store_instance() -> ExperienceStore:
@@ -45,11 +68,12 @@ def list_lessons(
     status: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """List lessons, optionally filtered by scope / target / status."""
+    normalized_target_key = _normalize_target_key(target_key) if target_key else ""
     out = []
     for lesson in _all_lessons():
         if scope and lesson.scope.value != scope:
             continue
-        if target_key and lesson.target_key != target_key:
+        if normalized_target_key and lesson.target_key != normalized_target_key:
             continue
         if status and lesson.status.value != status:
             continue
@@ -60,7 +84,7 @@ def list_lessons(
 def create_lesson(payload: dict[str, Any]) -> dict[str, Any]:
     """Create a new lesson (always starts as pending)."""
     scope = LessonScope(payload.get("scope") or "technique")
-    target_key = (payload.get("target_key") or "").strip() or None
+    target_key = _normalize_target_key(payload.get("target_key")) or None
     if scope is LessonScope.TARGET and not target_key:
         raise ValueError("target_key is required for target-scoped lessons")
     if scope is LessonScope.TECHNIQUE:

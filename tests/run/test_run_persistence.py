@@ -279,10 +279,17 @@ class DummyAgent:
 
 @pytest.mark.asyncio
 async def test_orchestrator_checkpoints_and_resumes_exact_run(tmp_path, monkeypatch):
+    import vulnclaw.orchestrator as orchestrator
     import vulnclaw.target_state.store as store
     from vulnclaw.orchestrator import run_agent_task
 
     monkeypatch.setattr(store, "TARGETS_DIR", tmp_path / "targets")
+    scheduled_targets: list[str] = []
+    monkeypatch.setattr(
+        orchestrator,
+        "_schedule_completed_run_distillation",
+        lambda _agent, _context, target: scheduled_targets.append(target.raw),
+    )
     agent = DummyAgent(tmp_path / "runs")
 
     async def runner(shared_agent):
@@ -305,6 +312,7 @@ async def test_orchestrator_checkpoints_and_resumes_exact_run(tmp_path, monkeypa
     run_name = result.summary["run_name"]
     run_dir = Path(result.summary["run_dir"])
     assert result.status == "completed"
+    assert scheduled_targets == ["https://example.com"]
     assert result.summary["resume_command"] == f"vulnclaw --resume {run_name}"
     assert json.loads((run_dir / "run.json").read_text(encoding="utf-8"))["status"] == (
         "completed"
@@ -328,6 +336,7 @@ async def test_orchestrator_checkpoints_and_resumes_exact_run(tmp_path, monkeypa
     )
 
     assert resumed.restore_result.restored is True
+    assert scheduled_targets == ["https://example.com", "https://example.com"]
     assert any("probe" in s and "checked login" not in s for s in resumed_agent.session_state.executed_steps)
     assert len(resumed_agent.session_state.step_records) >= 2
 
@@ -387,6 +396,41 @@ def test_distillation_setup_failure_is_logged_without_affecting_completed_run(tm
     assert context.manifest["status"] == "completed"
     events = (context.run_dir / "events" / "events.jsonl").read_text(encoding="utf-8")
     assert '"kind": "distillation_failed"' in events
+
+
+def test_completion_records_target_memory_without_llm(tmp_path, monkeypatch):
+    import vulnclaw.kb.experience as experience_module
+    import vulnclaw.orchestrator as orchestrator
+    from vulnclaw.agent.context import VulnerabilityFinding
+    from vulnclaw.kb.experience import ExperienceStore, LessonStatus
+    from vulnclaw.targets import target_experience_key
+
+    target = parse_target("https://example.com")
+    context = create_run_context(
+        command="recon", targets=[target], runs_dir=tmp_path / "runs", run_name="memory-run"
+    )
+    context.update_manifest(status="completed")
+    agent = DummyAgent(tmp_path / "runs")
+    agent.session_state.add_finding(
+        VulnerabilityFinding(
+            title="Verified SQL injection",
+            vuln_type="sqli",
+            evidence="database error reproduced",
+            verified=True,
+        )
+    )
+    store = ExperienceStore(tmp_path / "kb")
+    monkeypatch.setattr(experience_module, "ExperienceStore", lambda *args, **kwargs: store)
+
+    orchestrator._schedule_completed_run_distillation(agent, context, target)
+
+    events = (context.run_dir / "events" / "events.jsonl").read_text(encoding="utf-8")
+    assert '"kind": "memory_recorded"' in events
+    assert '"lessons": 1' in events
+    assert '"kind": "distillation_skipped"' in events
+    approved = store.list_by_status(LessonStatus.APPROVED)
+    assert len(approved) == 1
+    assert approved[0].target_key == target_experience_key(target)
 
 
 @pytest.mark.asyncio

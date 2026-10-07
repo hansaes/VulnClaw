@@ -8,23 +8,27 @@ import time
 from vulnclaw.agent.core import AgentCore
 from vulnclaw.config.settings import load_config
 from vulnclaw.i18n import init_i18n
+from vulnclaw.kb.experience import ExperienceStore, LessonSignal, LessonStatus
 from vulnclaw.mcp.lifecycle import MCPLifecycleManager
 from vulnclaw.task_service import execute_task, prepare_task
+from vulnclaw.targets import target_experience_key
 from vulnclaw.web.schemas import TaskCreateRequest
 from vulnclaw.web.task_manager import WebTaskManager
 
-#: Solve-engine events bridged onto the Web task stream. ``agent_step`` fires
-#: before every model call and carries nothing the following observation event
-#: does not repeat, so it is dropped to keep the console feed readable.
+#: Solve-engine events bridged onto the Web task stream.  The Web console uses
+#: these events to render the agent's live process and sub-agent activity.
 _SOLVE_EVENT_KINDS = frozenset(
     {
+        "agent_step",
         "agent_observation",
         "subagent",
         "group_progress",
         "ask_user",
+        "ask_user_suppressed",
         "ask_user_rejected",
         "no_path",
         "no_path_rejected",
+        "refusal_rescoped",
         "completed",
         "complete_rejected",
         "error",
@@ -42,6 +46,26 @@ def _as_text(value: object) -> str:
 
 def _event_text(kind: str, payload: dict) -> str:
     """Build the one-line summary the console renders for a solve event."""
+    if kind == "memory_loaded":
+        count = payload.get("lessons")
+        verified = payload.get("verified")
+        false_positives = payload.get("false_positives")
+        if isinstance(count, int):
+            return (
+                f"loaded {count} target memory records"
+                f" (verified {verified or 0}, false positives {false_positives or 0})"
+            )
+        return "target memory loaded"
+    if kind == "memory_recorded":
+        count = payload.get("lessons")
+        return (
+            f"target memory now contains {count} approved records"
+            if isinstance(count, int)
+            else "target memory recorded"
+        )
+    if kind == "agent_step":
+        step = payload.get("step")
+        return f"agent step {step}" if isinstance(step, int) else "agent step"
     if kind == "agent_observation":
         text = _as_text(payload.get("reason")) or "model turn (no action reason)"
         tools = [str(tool) for tool in (payload.get("tools") or []) if tool]
@@ -70,7 +94,7 @@ def _event_text(kind: str, payload: dict) -> str:
         if isinstance(waves, int) and waves > 0:
             parts.append(f"waves {waves}")
         return " · ".join(parts)
-    for key in ("reason", "question", "error", "message", "text"):
+    for key in ("reason", "question", "reply", "error", "message", "text"):
         value = _as_text(payload.get(key))
         if value:
             return value
@@ -205,6 +229,7 @@ async def _run_task(manager: WebTaskManager, task_id: str, request: TaskCreateRe
     agent = AgentCore(config, mcp_manager)
 
     try:
+        _publish_memory_loaded(manager, task_id, request.target)
 
         def before_restore(_restore_result) -> None:
             if request.resume:
@@ -246,6 +271,8 @@ async def _run_task(manager: WebTaskManager, task_id: str, request: TaskCreateRe
             on_cycle_complete=_build_cycle_complete_callback(manager, task_id),
             stream_sink=_WebStreamSink(manager, task_id),
         )
+        _publish_findings(manager, task_id, agent)
+        _publish_memory_recorded(manager, task_id, request.target)
         _publish_action_result(manager, task_id, execution.action_result)
         manager.set_completed(task_id, latest_message="Task finished", summary=execution.run.summary)
     except asyncio.CancelledError:
@@ -255,6 +282,58 @@ async def _run_task(manager: WebTaskManager, task_id: str, request: TaskCreateRe
         manager.set_failed(task_id, str(exc))
     finally:
         mcp_manager.stop_all()
+
+
+def _publish_memory_loaded(manager: WebTaskManager, task_id: str, target: str) -> None:
+    """Show the target memory loaded before the first agent turn."""
+    try:
+        target_key = target_experience_key(target)
+        lessons = ExperienceStore().list_by_status(LessonStatus.APPROVED)
+        scoped = [lesson for lesson in lessons if lesson.target_key == target_key]
+        payload = {
+            "target_key": target_key,
+            "lessons": len(scoped),
+            "verified": sum(lesson.signal is LessonSignal.SUCCESS for lesson in scoped),
+            "false_positives": sum(lesson.signal is LessonSignal.DEADEND for lesson in scoped),
+        }
+        payload["text"] = _event_text("memory_loaded", payload)
+        manager.publish(
+            task_id,
+            "memory_loaded",
+            payload,
+        )
+    except Exception:
+        # Loading memory is optional and must never block a task from starting.
+        manager.publish(
+            task_id,
+            "memory_loaded",
+            {"target_key": "", "lessons": 0, "text": "target memory loaded (0 records)"},
+        )
+
+
+def _publish_memory_recorded(manager: WebTaskManager, task_id: str, target: str) -> None:
+    """Report the durable target-memory count after a successful run."""
+    try:
+        target_key = target_experience_key(target)
+        lessons = ExperienceStore().list_by_status(LessonStatus.APPROVED)
+        count = sum(lesson.target_key == target_key for lesson in lessons)
+        payload = {"target_key": target_key, "lessons": count}
+        payload["text"] = _event_text("memory_recorded", payload)
+        manager.publish(task_id, "memory_recorded", payload)
+    except Exception:
+        manager.publish(task_id, "memory_recorded", {"lessons": 0, "text": "target memory recorded"})
+
+
+def _publish_findings(manager: WebTaskManager, task_id: str, agent: AgentCore) -> None:
+    """Add durable finding events to the task replay before task completion."""
+    for finding in getattr(getattr(agent, "session_state", None), "findings", []) or []:
+        if hasattr(finding, "model_dump"):
+            payload = finding.model_dump(mode="json")
+        elif isinstance(finding, dict):
+            payload = dict(finding)
+        else:
+            continue
+        manager.publish(task_id, "finding", {"finding": payload})
 
 
 def _build_cycle_step_callback(manager: WebTaskManager, task_id: str):

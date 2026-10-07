@@ -46,6 +46,7 @@ export function formatTaskStatus(status: string | null | undefined): string {
 export function formatFindingStatus(status: string | null | undefined): string {
   if (!status) return t("finding_status.pending");
   const normalized = status.toLowerCase();
+  if (normalized.includes("reject") || normalized.includes("false")) return t("finding_status.false_positive");
   const key = `finding_status.${normalized}`;
   const label = t(key);
   if (label !== key) return label;

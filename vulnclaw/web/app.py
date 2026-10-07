@@ -20,6 +20,7 @@ from vulnclaw.web.schemas import (
     ChatMessageRequest,
     ConfigUpdateRequest,
     DualModelRequest,
+    FindingReviewRequest,
     LessonCreateRequest,
     LoginRequest,
     ModelProfileRequest,
@@ -64,6 +65,7 @@ from vulnclaw.web.services.target_service import (
     get_target,
     get_target_raw,
     list_targets,
+    reject_finding,
     rollback_target,
 )
 from vulnclaw.web.services.task_service import start_task
@@ -433,6 +435,13 @@ def create_app():
         if not raw:
             raise HTTPException(status_code=404, detail="Target not found")
         return JSONResponse(raw)
+
+    @app.post("/api/targets/{target:path}/findings/{finding_id:path}/reject")
+    async def target_finding_reject(target: str, finding_id: str, request: FindingReviewRequest):
+        item = reject_finding(target, finding_id, request.reason)
+        if not item:
+            raise HTTPException(status_code=404, detail="Finding not found")
+        return item.model_dump(mode="json")
 
     @app.get("/api/target-preview/{target:path}")
     async def target_preview(target: str, snapshot_id: str | None = None):

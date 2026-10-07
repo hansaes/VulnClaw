@@ -298,3 +298,22 @@ def test_target_scoped_lessons_are_withheld_when_the_live_target_is_unknown(tmp_
     )
 
     assert "scoped-lesson" not in context
+
+
+def test_target_memory_matches_url_and_bare_domain_forms(tmp_path):
+    store = ExperienceStore(store_dir=tmp_path)
+    target_lesson = store.add(
+        _lesson(
+            "url-target-only",
+            scope="target",
+            target_key=parse_target("example.com").target_id,
+            tags={"tech": [], "vuln_type": "", "waf": "", "service": ""},
+        )
+    )
+    store.approve(target_lesson.id)
+
+    context = build_experience_context(
+        SimpleNamespace(target="https://EXAMPLE.com/login", recon_data={}, findings=[]), store
+    )
+
+    assert "url-target-only" in context

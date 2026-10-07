@@ -19,7 +19,7 @@ from typing import Any, Optional
 
 from vulnclaw.kb.experience import ExperienceStore
 from vulnclaw.kb.ranking import bigram_tokenize
-from vulnclaw.targets import parse_target
+from vulnclaw.targets import target_experience_key
 
 _MAX_LESSONS = 5
 _MAX_LESSON_CHARS = 800
@@ -57,13 +57,14 @@ def build_experience_context(
 
         lines = [
             "## Prior Experience / Lessons",
-            "Human-approved lessons from relevant prior engagements:",
+            "Approved lessons and machine-verified facts from relevant prior engagements:",
         ]
         for lesson in ranked[:_MAX_LESSONS]:
             instruction = _single_line(_value(lesson, "lesson"))[:_MAX_LESSON_CHARS]
             if not instruction:
                 continue
-            signal = _single_line(_value(lesson, "signal")) or "lesson"
+            signal_value = _value(lesson, "signal")
+            signal = _single_line(getattr(signal_value, "value", signal_value)) or "lesson"
             condition = _single_line(_value(lesson, "context"))[:240]
             prefix = f"- [{signal}]"
             lines.append(f"{prefix} {condition}: {instruction}" if condition else f"{prefix} {instruction}")
@@ -84,7 +85,7 @@ def _live_target_context(target_ctx: Any) -> tuple[set[str], str, str]:
 
     target = str(_value(state, "target", "") or "").strip()
     try:
-        target_key = parse_target(target).target_id if target else ""
+        target_key = target_experience_key(target) if target else ""
     except ValueError:
         target_key = ""
     tags: set[str] = set()

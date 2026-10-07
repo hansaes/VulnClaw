@@ -292,6 +292,79 @@ class TestWebServices:
         assert items[0].candidate_count == 1
         assert items[0].manual_review_count == 1
 
+    def test_web_target_service_lists_run_backed_targets(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        import vulnclaw.web.services.target_service as target_service
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
+        from vulnclaw.run_context import create_run_context
+        from vulnclaw.targets import parse_target
+
+        targets_dir = tmp_path / "targets"
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", targets_dir)
+        monkeypatch.setattr(target_service, "TARGETS_DIR", targets_dir)
+
+        target = parse_target("https://run-backed.example")
+        run_context = create_run_context(
+            command="scan",
+            targets=[target],
+            runs_dir=tmp_path / "runs",
+            run_name="run-backed-findings",
+        )
+        state = SessionState(target=target.raw)
+        state.add_finding(
+            VulnerabilityFinding(
+                title="Run-backed finding",
+                severity="Medium",
+                vuln_type="Exposure",
+                lifecycle_status="candidate",
+            )
+        )
+        store_mod.save_target_state(
+            target.raw,
+            state,
+            command="scan",
+            run_context=run_context,
+            target_model=target,
+        )
+
+        items = target_service.list_targets()
+        assert len(items) == 1
+        assert items[0].target == target.raw
+        assert items[0].findings_count == 1
+
+    def test_web_target_service_marks_false_positive(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        import vulnclaw.web.services.target_service as target_service
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
+        from vulnclaw.kb.experience import ExperienceStore
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path / "targets")
+        monkeypatch.setattr(target_service, "TARGETS_DIR", tmp_path / "targets")
+        monkeypatch.setattr(
+            target_service, "ExperienceStore", lambda: ExperienceStore(tmp_path / "kb")
+        )
+
+        state = SessionState(target="https://example.com")
+        finding = VulnerabilityFinding(
+            title="Suspected issue",
+            severity="High",
+            vuln_type="Access Control",
+            evidence="verification disproved the behavior",
+        )
+        state.add_finding(finding)
+        store_mod.save_target_state("https://example.com", state, command="scan")
+
+        updated = target_service.reject_finding(
+            "https://example.com",
+            finding.finding_id,
+            "false positive during verification",
+        )
+
+        assert updated is not None
+        assert updated.raw["findings"][0]["verification_status"] == "rejected"
+        assert updated.raw["findings"][0]["lifecycle_status"] == "rejected"
+        assert updated.raw["findings"][0]["verification_note"] == "false positive during verification"
+
     def test_web_target_service_snapshots(self, monkeypatch, tmp_path):
         import vulnclaw.target_state.store as store_mod
         import vulnclaw.web.services.target_service as target_service

@@ -57,6 +57,15 @@ class TaskEvent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class FindingReviewRequest(BaseModel):
+    reason: str = Field(default="", max_length=4000)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        return _reject_control_chars(value) or ""
+
+
 class TaskSummary(BaseModel):
     target: str
     command: TaskCommand

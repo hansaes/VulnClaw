@@ -172,6 +172,7 @@ def distill_run(
     from vulnclaw.feedback import feedback_for_distillation
     from vulnclaw.kb.experience import ExperienceStore
     from vulnclaw.run_context import RunContextError, load_run_context
+    from vulnclaw.targets import target_experience_key
 
     if not has_llm_credentials(config.llm):
         return OpResult(False, "[!] Configure LLM credentials first (api_key or auth_mode).")
@@ -185,7 +186,9 @@ def distill_run(
         artifacts = RunArtifacts.from_session(
             run_context.run_name,
             session,
-            target_key=str(target.get("target_id") or ""),
+            target_key=target_experience_key(
+                str(target.get("canonical") or target.get("input") or "")
+            ),
             feedback=feedback_for_distillation(run_context.run_dir),
         )
         lessons = persist_distilled_lessons(

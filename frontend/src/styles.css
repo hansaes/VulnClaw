@@ -182,6 +182,7 @@ select.vw-input { appearance: none; cursor: pointer; width: auto; }
 .vw-st-fixing { background: rgba(96, 165, 250, 0.12); color: var(--blue); }
 .vw-st-fixed { background: rgba(52, 211, 153, 0.12); color: var(--green); }
 .vw-st-ignored { background: rgba(148, 163, 184, 0.12); color: var(--muted); }
+.vw-st-false { background: rgba(52, 211, 153, 0.14); color: var(--green); }
 
 .vw-chip {
   border: 1px solid var(--border); background: var(--panel); color: var(--muted);

@@ -13,8 +13,11 @@ Companion production surfaces (do not add a second store or CLI):
 * CLI: ``vulnclaw experience`` / ``vulnclaw learn`` / ``vulnclaw feedback`` in
   ``vulnclaw.cli.main``
 
-Lessons remain ``pending`` until a human approves them, so automated
-distillation cannot teach later runs an unreviewed tactic.  Files live at
+LLM-generated lessons remain ``pending`` until a human approves them, so
+automated distillation cannot teach later runs an unreviewed tactic.  The run
+completion path may also write target-scoped, structured facts (verified
+findings, explicit false positives, and recorded paths) as ``approved`` because
+those records are derived directly from persisted run state.  Files live at
 ``<KB_DIR>/experience/<lesson-id>.json``.
 """
 
