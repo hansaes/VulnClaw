@@ -50,6 +50,13 @@ ROLE_REGISTRY: dict[str, AgentRole] = {
             "search*",
             "*search*",
             "hypothesis_*",
+            "roi_gate_*",
+            "classify_challenge",
+            "map_vuln",
+            "web_opening_checklist",
+            "crypto_rsa_tree",
+            "detect_encoding",
+            "filter_fingerprint_plan",
         ),
         goal_template=(
             "Research objective: {objective}\n"
@@ -123,6 +130,13 @@ ROLE_REGISTRY: dict[str, AgentRole] = {
             "*recon*",
             "hypothesis_*",
             "get_script_template",
+            "roi_gate_*",
+            "classify_challenge",
+            "map_vuln",
+            "web_opening_checklist",
+            "crypto_rsa_tree",
+            "detect_encoding",
+            "filter_fingerprint_plan",
         ),
         goal_template=(
             "Execution objective: {objective}\n"
