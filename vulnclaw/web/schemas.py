@@ -302,6 +302,19 @@ class ProviderModelsResponse(BaseModel):
     detail: str = ""
 
 
+class ProviderModelsPreviewRequest(BaseModel):
+    """One-shot model listing with a user-supplied key (never persisted)."""
+
+    provider: Optional[str] = Field(default=None, max_length=64)
+    base_url: Optional[str] = Field(default=None, max_length=512)
+    api_key: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str | None) -> str | None:
+        return _validate_http_base_url(value)
+
+
 class ReportContentView(BaseModel):
     path: str
     kind: str
