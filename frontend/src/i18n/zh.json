@@ -930,5 +930,12 @@
   "detail.tl_evidence": "证据",
   "detail.tl_tool": "工具调用",
   "detail.tl_result": "工具返回",
-  "detail.no_process_events": "暂无执行过程，等待 Agent 开始工作…"
+  "detail.no_process_events": "暂无执行过程，等待 Agent 开始工作…",
+  "models.fetch_models": "获取模型列表",
+  "models.fetching": "获取中…",
+  "models.fetch_need_key": "请先填写 API Key",
+  "models.fetch_ok": "找到 {count} 个模型，可在下方输入框搜索选择",
+  "models.fetch_empty": "未能获取到模型列表，可手动输入模型名",
+  "models.fetch_failed": "获取失败",
+  "models.f_model_pick": "输入搜索或选择模型…"
 }
