@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useT } from "../i18n";
 import { useProvidersQuery } from "../hooks/queries";
+import { previewProviderModels } from "../api/web";
 
 type ModelRole = "thinking" | "execution" | "both";
 
@@ -231,6 +232,9 @@ function ModelProfileForm({
   const [role, setRole] = useState<ModelRole>(initial?.role ?? "both");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [modelList, setModelList] = useState<string[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [fetchMsg, setFetchMsg] = useState<string | null>(null);
 
   const isPreset = presets.some((pr) => pr.id === provider);
 
@@ -238,6 +242,37 @@ function ModelProfileForm({
     setProvider(value);
     const preset = presets.find((pr) => pr.id === value);
     if (preset?.base_url) setBaseUrl(preset.base_url);
+    setModelList([]);
+    setFetchMsg(null);
+  }
+
+  async function handleFetchModels() {
+    if (!apiKey.trim()) {
+      setFetchMsg(t("models.fetch_need_key"));
+      return;
+    }
+    setFetchingModels(true);
+    setFetchMsg(null);
+    try {
+      const res = await previewProviderModels({
+        provider: provider.trim(),
+        base_url: baseUrl.trim(),
+        api_key: apiKey,
+      });
+      if (res.models.length > 0) {
+        setModelList(res.models);
+        setFetchMsg(t("models.fetch_ok", { count: String(res.models.length) }));
+        if (!model.trim() || !res.models.includes(model.trim())) {
+          setModel(res.models[0]);
+        }
+      } else {
+        setFetchMsg(res.detail || t("models.fetch_empty"));
+      }
+    } catch (err) {
+      setFetchMsg(err instanceof Error ? err.message : t("models.fetch_failed"));
+    } finally {
+      setFetchingModels(false);
+    }
   }
 
   async function handleSave() {
@@ -269,6 +304,8 @@ function ModelProfileForm({
     }
   }
 
+  const datalistId = `vw-model-list-${initial?.id ?? "new"}`;
+
   return (
     <div className="vw-modal-overlay" onClick={onClose}>
       <div className="vw-modal" onClick={(e) => e.stopPropagation()}>
@@ -297,9 +334,36 @@ function ModelProfileForm({
                 <input value={provider} onChange={(e) => setProvider(e.target.value)} placeholder="openai" />
               </label>
             )}
+            <label className="field field-wide">
+              <span>{t("models.f_base_url")}</span>
+              <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.openai.com/v1" />
+            </label>
+            <div className="field field-wide">
+              <span>{t("models.f_api_key")}{initial ? `（${t("models.key_keep")}）` : ""}</span>
+              <div className="vw-key-row">
+                <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-…" autoComplete="off" />
+                <button
+                  className="vw-btn vw-btn-ghost vw-btn-sm" type="button"
+                  disabled={fetchingModels || !apiKey.trim()}
+                  onClick={handleFetchModels}
+                >
+                  {fetchingModels ? t("models.fetching") : t("models.fetch_models")}
+                </button>
+              </div>
+              {fetchMsg && <small className={modelList.length > 0 ? "vw-ok-text" : "vw-muted-text"}>{fetchMsg}</small>}
+            </div>
             <label className="field">
               <span>{t("models.f_model")}</span>
-              <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o" />
+              <input
+                value={model} onChange={(e) => setModel(e.target.value)}
+                placeholder={modelList.length > 0 ? t("models.f_model_pick") : "gpt-4o"}
+                list={datalistId} autoComplete="off"
+              />
+              {modelList.length > 0 && (
+                <datalist id={datalistId}>
+                  {modelList.map((m) => <option key={m} value={m} />)}
+                </datalist>
+              )}
             </label>
             <label className="field">
               <span>{t("models.f_role")}</span>
@@ -308,14 +372,6 @@ function ModelProfileForm({
                 <option value="thinking">🧠 {t("models.thinking")}</option>
                 <option value="execution">⚡ {t("models.execution")}</option>
               </select>
-            </label>
-            <label className="field field-wide">
-              <span>{t("models.f_base_url")}</span>
-              <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.openai.com/v1" />
-            </label>
-            <label className="field field-wide">
-              <span>{t("models.f_api_key")}{initial ? `（${t("models.key_keep")}）` : ""}</span>
-              <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-…" autoComplete="off" />
             </label>
           </div>
           {error && <div className="vw-err">{error}</div>}

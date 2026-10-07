@@ -4,6 +4,7 @@ import type {
   ConfigUpdateRequest,
   MCPDiagnosticsView,
   ProviderModelsRequest,
+  ProviderModelsPreviewRequest,
   ProviderModelsResponse,
   ProvidersView,
   ReportListItem,
@@ -207,6 +208,13 @@ export function getProviders(): Promise<ProvidersView> {
 
 export function fetchProviderModels(payload: ProviderModelsRequest): Promise<ProviderModelsResponse> {
   return requestJson<ProviderModelsResponse>("/api/provider-models", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function previewProviderModels(payload: ProviderModelsPreviewRequest): Promise<ProviderModelsResponse> {
+  return requestJson<ProviderModelsResponse>("/api/provider-models/preview", {
     method: "POST",
     body: JSON.stringify(payload),
   });

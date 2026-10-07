@@ -71,6 +71,12 @@ export interface ProviderModelsRequest {
   base_url?: string;
 }
 
+export interface ProviderModelsPreviewRequest {
+  provider?: string;
+  base_url?: string;
+  api_key: string;
+}
+
 export interface ProviderModelsResponse {
   base_url: string;
   models: string[];
