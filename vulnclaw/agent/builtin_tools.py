@@ -1281,6 +1281,18 @@ async def execute_mcp_tool(agent: AgentContext, tool_name: str, args: dict[str, 
     if tool_name == "python_execute":
         return await execute_python(agent, args)
 
+    if tool_name == "hypothesis_add":
+        return _execute_hypothesis_add(agent, args)
+
+    if tool_name == "hypothesis_test":
+        return _execute_hypothesis_test(agent, args)
+
+    if tool_name == "hypothesis_list":
+        return _execute_hypothesis_list(agent)
+
+    if tool_name == "get_script_template":
+        return _execute_get_script_template(args)
+
     if tool_name == "load_skill_reference":
         try:
             from vulnclaw.skills.loader import load_skill_reference
@@ -2219,6 +2231,81 @@ def _write_python_audit(
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception:
         return
+
+
+# ── Hypothesis tracker tools (E4/E5) ─────────────────────────────────
+
+
+def _get_hypothesis_tracker(agent: AgentContext) -> Any:
+    """Get or create the per-session hypothesis tracker."""
+    from vulnclaw.agent.hypothesis import HypothesisTracker
+
+    tracker = getattr(agent, "_hypothesis_tracker", None)
+    if tracker is None:
+        tracker = HypothesisTracker()
+        agent._hypothesis_tracker = tracker
+    # Opportunistic stale sweep on every access.
+    for hyp in tracker.sweep_stale():
+        pass
+    return tracker
+
+
+def _execute_hypothesis_add(agent: AgentContext, args: dict[str, Any]) -> str:
+    tracker = _get_hypothesis_tracker(agent)
+    title = str(args.get("title", "")).strip()
+    if not title:
+        return "[!] hypothesis_add requires a title"
+    hyp = tracker.add(
+        title,
+        description=str(args.get("description", "")),
+        test_plan=str(args.get("test_plan", "")),
+    )
+    return f"[hypothesis {hyp.id} registered] {hyp.title}\nTest plan: {hyp.test_plan or '(not specified)'}\nCircuit breaker: {3} failed tests or 20 min idle → auto-abandon."
+
+
+def _execute_hypothesis_test(agent: AgentContext, args: dict[str, Any]) -> str:
+    tracker = _get_hypothesis_tracker(agent)
+    hid = str(args.get("id", "")).strip()
+    hyp = tracker.get(hid)
+    if hyp is None:
+        return f"[!] unknown hypothesis id: {hid}"
+    success = bool(args.get("success", False))
+    tracker.note_test(
+        hid,
+        success=success,
+        note=str(args.get("note", "")),
+        evidence_id=str(args.get("evidence_id", "")),
+    )
+    if hyp.status == "abandoned":
+        return (
+            f"[hypothesis {hid} AUTO-ABANDONED] {hyp.title}\n"
+            f"Reason: {hyp.notes[-1] if hyp.notes else 'circuit breaker'}\n"
+            f"Reopen condition: {hyp.reopen_condition}\n"
+            "→ Back to recon: pick the next lead."
+        )
+    if success:
+        return f"[hypothesis {hid} progressing] strikes reset to 0."
+    return f"[hypothesis {hid} strike {hyp.strikes}/3] {hyp.title}"
+
+
+def _execute_hypothesis_list(agent: AgentContext) -> str:
+    tracker = _get_hypothesis_tracker(agent)
+    return "[hypotheses]\n" + tracker.summary()
+
+
+def _execute_get_script_template(args: dict[str, Any]) -> str:
+    from vulnclaw.agent.script_templates import get_template, list_templates
+
+    kind = str(args.get("kind", "")).strip().lower()
+    source = get_template(kind)
+    if source is None:
+        return f"[!] unknown template kind: {kind}\n{list_templates()}"
+    return (
+        f"[script template: {kind}]\n"
+        "Fill in ONLY the FILL-IN sections, then run with python_execute. "
+        "The script must be idempotent (re-running reproduces the result).\n\n"
+        + source
+    )
 
 
 async def execute_python(agent: AgentContext, args: dict[str, Any]) -> str:
