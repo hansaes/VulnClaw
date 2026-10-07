@@ -192,6 +192,15 @@ class ModelProfileRequest(BaseModel):
     model: Optional[str] = Field(default=None, max_length=160)
     base_url: Optional[str] = Field(default=None, max_length=512)
     api_key: Optional[str] = Field(default=None, max_length=512)
+    role: Optional[str] = Field(default=None, max_length=16)
+
+
+class ModelProfileRoleRequest(BaseModel):
+    role: str = Field(min_length=1, max_length=16)
+
+
+class DualModelRequest(BaseModel):
+    enabled: bool
 
 
 class ChatMessageRequest(BaseModel):
