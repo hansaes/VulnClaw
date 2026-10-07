@@ -844,3 +844,10 @@ pre { background: #080b10; border: 1px solid var(--border); border-radius: 8px; 
 .vw-tl-dot.warn { background: var(--yellow, #eab308); }
 .vw-tl-dot.danger { background: var(--red); }
 .vw-tl-dot.info { background: #0ea5e9; }
+
+/* ── 模型 Key + 拉取列表 ──────────────────────────────── */
+.vw-key-row { display: flex; gap: 8px; }
+.vw-key-row input { flex: 1; min-width: 0; }
+.vw-key-row .vw-btn { flex: none; }
+.vw-ok-text { color: #4ade80; }
+.vw-muted-text { color: var(--muted); }
