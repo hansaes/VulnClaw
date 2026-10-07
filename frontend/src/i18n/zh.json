@@ -811,5 +811,21 @@
   "vuln.d_type": "类型",
   "vuln.d_evidence": "证据",
   "vuln.d_impact": "影响",
-  "vuln.d_fix": "修复建议"
+  "vuln.d_fix": "修复建议",
+  "vuln.subtitle_grouped": "{groups} 个目标 · {count} 个漏洞",
+  "vuln.all_targets": "全部目标",
+  "vuln.verify": "验证",
+  "vuln.verify_selected": "验证选中",
+  "vuln.verify_title": "启动漏洞验证？",
+  "vuln.verify_copy_one": "将对目标 {target} 启动一次定向验证任务（exploit），目标漏洞：{title}\nCVE：{cve}",
+  "vuln.verify_copy_many": "将为 {count} 个选中漏洞各启动一次定向验证任务。\n涉及 CVE：{cves}",
+  "vuln.no_cve": "未识别到 CVE 编号，将按漏洞标题定向验证",
+  "vuln.verify_launch": "开始验证",
+  "vuln.verifying": "创建中…",
+  "vuln.verify_created": "已创建验证任务：{title}",
+  "vuln.bulk_verified": "已创建 {count} 个验证任务",
+  "vuln.verify_failed": "验证任务创建失败",
+  "vuln.select_group": "全选 {target} 的漏洞",
+  "vuln.findings_count": "{count} 个漏洞",
+  "vuln.high_risk": "{count} 个高危"
 }

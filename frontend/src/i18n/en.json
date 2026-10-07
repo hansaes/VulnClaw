@@ -811,5 +811,21 @@
   "vuln.d_type": "Type",
   "vuln.d_evidence": "Evidence",
   "vuln.d_impact": "Impact",
-  "vuln.d_fix": "Remediation"
+  "vuln.d_fix": "Remediation",
+  "vuln.subtitle_grouped": "{groups} targets · {count} findings",
+  "vuln.all_targets": "All targets",
+  "vuln.verify": "Verify",
+  "vuln.verify_selected": "Verify selected",
+  "vuln.verify_title": "Launch vulnerability verification?",
+  "vuln.verify_copy_one": "Launch a targeted verification task (exploit) on {target} for: {title}\nCVE: {cve}",
+  "vuln.verify_copy_many": "Launch one targeted verification task per selected finding ({count} total).\nCVEs: {cves}",
+  "vuln.no_cve": "no CVE detected — will verify by finding title",
+  "vuln.verify_launch": "Start verification",
+  "vuln.verifying": "Creating…",
+  "vuln.verify_created": "Verification task created: {title}",
+  "vuln.bulk_verified": "{count} verification tasks created",
+  "vuln.verify_failed": "Failed to create verification tasks",
+  "vuln.select_group": "Select all findings of {target}",
+  "vuln.findings_count": "{count} findings",
+  "vuln.high_risk": "{count} high-risk"
 }
