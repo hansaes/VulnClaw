@@ -27,7 +27,7 @@ function buildModes(t: TFunction): ModeDef[] {
   return [
     { key: "quick", title: t("home.mode_quick"), copy: t("home.mode_quick_copy"), time: t("wiz.time_quick"), command: "recon", allowActions: ["recon"], blockActions: ["exploit", "persistent"] },
     { key: "standard", title: t("home.mode_standard"), copy: t("home.mode_standard_copy"), time: t("wiz.time_standard"), command: "run", allowActions: ["recon", "scan"], blockActions: ["post_exploitation"] },
-    { key: "deep", title: t("home.mode_deep"), copy: t("home.mode_deep_copy"), time: t("wiz.time_deep"), command: "scan", allowActions: ["recon", "scan", "exploit"] },
+    { key: "deep", title: t("home.mode_deep"), copy: t("home.mode_deep_copy"), time: t("wiz.time_deep"), command: "run", allowActions: ["recon", "scan", "exploit"] },
     { key: "continuous", title: t("home.mode_loop"), copy: t("home.mode_loop_copy"), time: t("wiz.time_continuous"), command: "persistent", allowActions: ["recon", "scan", "persistent"], blockActions: ["post_exploitation"] },
   ];
 }
