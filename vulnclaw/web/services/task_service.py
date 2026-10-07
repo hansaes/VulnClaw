@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 from vulnclaw.agent.core import AgentCore
 from vulnclaw.config.settings import load_config
@@ -100,6 +101,87 @@ def _build_event_callback(manager: WebTaskManager, task_id: str):
     return _callback
 
 
+#: Batch thresholds for the web stream sink: one SSE event (and one task-state
+#: write) covers many provider tokens.
+_STREAM_FLUSH_SECONDS = 0.8
+_STREAM_FLUSH_CHARS = 600
+_STREAM_TEXT_LIMIT = 4000
+
+
+class _WebStreamSink:
+    """StreamSink that forwards model output onto the Web task stream.
+
+    Runs that pass a sink use the streaming call path, so the console receives
+    reasoning, content and tool deltas while a turn is still generating instead
+    of only after it finishes. Deltas are batched so the event stream and the
+    persisted task state are not rewritten once per token.
+
+    Note: this is a visibility change, not a reliability fix. The intermittent
+    provider timeouts seen here hit the streaming and non-streaming paths alike
+    (measured 5/10 vs 6/10 call failures at a fixed ~16-19s), so the retry
+    tolerance in ``vulnclaw.agent.solver`` is what keeps runs alive.
+    """
+
+    def __init__(self, manager: WebTaskManager, task_id: str) -> None:
+        self._manager = manager
+        self._task_id = task_id
+        self._buffers: dict[str, list[str]] = {}
+        self._last_flush = time.monotonic()
+
+    def _push(self, kind: str, text: str) -> None:
+        if not text:
+            return
+        parts = self._buffers.setdefault(kind, [])
+        parts.append(text)
+        if sum(len(part) for part in parts) >= _STREAM_FLUSH_CHARS or (
+            time.monotonic() - self._last_flush >= _STREAM_FLUSH_SECONDS
+        ):
+            self.flush()
+
+    def flush(self) -> None:
+        """Publish whatever is buffered; called on size, time and stream end."""
+        self._last_flush = time.monotonic()
+        for kind, parts in list(self._buffers.items()):
+            text = "".join(parts)
+            self._buffers[kind] = []
+            if text:
+                self._manager.publish(
+                    self._task_id,
+                    "agent_stream",
+                    {"type": kind, "text": text[-_STREAM_TEXT_LIMIT:]},
+                )
+
+    # ── StreamSink protocol ──────────────────────────────────────────────
+    def on_status(self, message: str) -> None:
+        self.flush()
+        self._manager.publish(
+            self._task_id, "agent_status", {"message": str(message or "")[:200]}
+        )
+
+    def on_thinking_token(self, token: str) -> None:
+        self._push("reasoning", token)
+
+    def on_content_token(self, token: str) -> None:
+        self._push("content", token)
+
+    def on_tool_call(self, tool_name: str, args: str) -> None:
+        self.flush()
+        self._manager.publish(
+            self._task_id, "agent_tool", {"tool": str(tool_name), "args": str(args)[:1000]}
+        )
+
+    def on_tool_result(self, result_summary: str) -> None:
+        self.flush()
+        text = str(result_summary or "").strip()
+        if text:
+            self._manager.publish(
+                self._task_id, "agent_tool_result", {"result": text[:1500]}
+            )
+
+    def on_stream_end(self) -> None:
+        self.flush()
+
+
 def start_task(manager: WebTaskManager, request: TaskCreateRequest) -> str:
     """Create and schedule a new task."""
     record = manager.create_task(request)
@@ -110,6 +192,9 @@ def start_task(manager: WebTaskManager, request: TaskCreateRequest) -> str:
 
 async def _run_task(manager: WebTaskManager, task_id: str, request: TaskCreateRequest) -> None:
     config = load_config()
+    # A Web task has no human attached: an ASK_USER would end the run with nobody
+    # able to answer it, so let the solve loop resolve such questions itself.
+    config.session.headless_autonomy = True
     # Web-triggered tasks (including persistent-cycle runs) build prompts and
     # reports outside the CLI, so the configured language must be resolved
     # here before any of that code runs — the CLI does this at its own
@@ -159,6 +244,7 @@ async def _run_task(manager: WebTaskManager, task_id: str, request: TaskCreateRe
             on_step=_build_step_callback(manager, task_id),
             on_cycle_step=_build_cycle_step_callback(manager, task_id),
             on_cycle_complete=_build_cycle_complete_callback(manager, task_id),
+            stream_sink=_WebStreamSink(manager, task_id),
         )
         _publish_action_result(manager, task_id, execution.action_result)
         manager.set_completed(task_id, latest_message="Task finished", summary=execution.run.summary)
