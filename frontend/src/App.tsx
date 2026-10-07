@@ -5,6 +5,9 @@ import type { NavItem } from "./components/Sidebar";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ToastHost, type ToastItem, type ToastTone } from "./components/ToastHost";
 import { DashboardPage } from "./pages/DashboardPage";
+import { LoginPage } from "./pages/LoginPage";
+import { MemoryPage } from "./pages/MemoryPage";
+import { ChatPage } from "./pages/ChatPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { HomePage } from "./pages/HomePage";
 import { ReportsPage } from "./pages/ReportsPage";
@@ -12,13 +15,20 @@ import { RiskResultsPage } from "./pages/RiskResultsPage";
 import { SafetyBoundaryPage } from "./pages/SafetyBoundaryPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TaskConsolePage } from "./pages/TaskConsolePage";
-import { createTask, openTaskStream, stopTask } from "./api/web";
+import {
+  createTask,
+  openTaskStream,
+  stopTask,
+  getAuthStatus,
+  logout,
+  getTask,
+} from "./api/web";
 import { useConfigQuery, useTargetsQuery, useTasksQuery } from "./hooks/queries";
 import { useT } from "./i18n";
 import type { TaskCommand, TaskEvent, TaskOptions, TaskRecord, TaskSummary } from "./types/api";
 import { formatTaskTitle } from "./utils/taskLabels";
 
-type AppView = "dashboard" | "home" | "risk" | "reports" | "boundary" | "history" | "settings" | "advanced";
+type AppView = "dashboard" | "home" | "risk" | "memory" | "chat" | "reports" | "boundary" | "history" | "settings" | "advanced";
 type SettingsSection = "basic" | "ai" | "checks" | "boundary" | "data" | "python" | "diagnostics";
 
 interface ReportFocus {
@@ -31,6 +41,8 @@ const HASH_TO_VIEW: Record<string, AppView> = {
   dashboard: "dashboard",
   home: "home",
   risk: "risk",
+  memory: "memory",
+  chat: "chat",
   reports: "reports",
   boundary: "boundary",
   history: "history",
@@ -57,6 +69,9 @@ export function App() {
   const [taskEvents, setTaskEvents] = useState<TaskEvent[]>([]);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [loginRequired, setLoginRequired] = useState(false);
+  const [passwordAuthEnabled, setPasswordAuthEnabled] = useState(false);
 
   const runningCount = useMemo(
     () => (tasksQuery.data ?? []).filter((x) => x.status === "running" || x.status === "pending").length,
@@ -73,6 +88,8 @@ export function App() {
       { key: "home", label: t("nav.scan"), description: t("nav.scan_desc"), icon: "plus" },
       { key: "history", label: t("nav.tasks"), description: t("nav.tasks_desc"), icon: "tasks", badge: runningCount },
       { key: "risk", label: t("nav.findings"), description: t("nav.findings_desc"), icon: "shield", badge: pendingVulns },
+      { key: "memory", label: t("nav.memory"), description: t("nav.memory_desc"), icon: "memory" },
+      { key: "chat", label: t("nav.chat"), description: t("nav.chat_desc"), icon: "chat" },
       { key: "reports", label: t("nav.reports"), description: t("nav.reports_desc"), icon: "reports" },
       { key: "boundary", label: t("nav.scope"), description: t("nav.scope_desc"), icon: "scope" },
       { key: "settings", label: t("nav.settings"), description: t("nav.settings_desc"), icon: "settings" },
@@ -86,6 +103,22 @@ export function App() {
   );
 
   const latestEvent = taskEvents.length > 0 ? taskEvents[taskEvents.length - 1] : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    getAuthStatus()
+      .then((st) => {
+        if (!cancelled) { setPasswordAuthEnabled(st.password_auth_enabled); setLoginRequired(st.password_auth_enabled && !st.authenticated); }
+      })
+      .catch(() => { /* backend unreachable — AppShell shows the error */ })
+      .finally(() => { if (!cancelled) setAuthChecked(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  async function handleLogout() {
+    try { await logout(); } catch { /* ignore */ }
+    setLoginRequired(true);
+  }
 
   useEffect(() => {
     const handleHashChange = () => setActiveView(viewFromHash());
@@ -225,6 +258,27 @@ export function App() {
     navigateToView("advanced");
   }
 
+  async function openTaskById(taskId: string) {
+    try {
+      const task = await getTask(taskId);
+      openTaskDetail(task);
+    } catch {
+      navigateToView("history");
+    }
+  }
+
+  if (!authChecked) {
+    return (
+      <div className="vw-login-wrap">
+        <p style={{ color: "var(--muted)" }}>{t("auth.checking")}</p>
+      </div>
+    );
+  }
+
+  if (loginRequired) {
+    return <LoginPage onLoggedIn={() => setLoginRequired(false)} />;
+  }
+
   return (
     <AppShell
       activeView={activeView}
@@ -238,6 +292,7 @@ export function App() {
       onSelectView={handleSelectView}
       onOpenTaskDetail={() => navigateToView("advanced")}
       onStopTask={() => setStopConfirmOpen(true)}
+      onLogout={passwordAuthEnabled ? handleLogout : undefined}
     >
       {activeView === "dashboard" && (
         <DashboardPage
@@ -294,6 +349,8 @@ export function App() {
       )}
 
       {activeView === "reports" && <ReportsPage selectedTarget={selectedTarget} focus={reportFocus} />}
+      {activeView === "memory" && <MemoryPage />}
+      {activeView === "chat" && <ChatPage onOpenTaskDetail={(id) => void openTaskById(id)} />}
 
       {activeView === "boundary" && (
         <SafetyBoundaryPage

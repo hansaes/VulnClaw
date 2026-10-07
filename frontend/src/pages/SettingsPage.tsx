@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ConfigView } from "../types/api";
 import { fetchProviderModels, updateConfig } from "../api/web";
+import { ModelProfilesBlock } from "../components/ModelProfilesBlock";
 import { SectionCard } from "../components/SectionCard";
 import { useConfigQuery, useMcpDiagnosticsQuery, useProvidersQuery } from "../hooks/queries";
 import { useT, type TFunction } from "../i18n";
@@ -318,7 +319,9 @@ export function SettingsPage({ initialSection = "basic", onOpenAdvanced }: Setti
           )}
 
           {activeSection === "ai" && (
-            <div className="form-grid">
+            <>
+              <ModelProfilesBlock onChanged={() => void configQuery.refetch()} />
+              <div className="form-grid">
               <label className="field">
                 <span>{t("settings.provider")}</span>
                 <select value={provider} onChange={(event) => onProviderChange(event.target.value)}>
@@ -395,7 +398,8 @@ export function SettingsPage({ initialSection = "basic", onOpenAdvanced }: Setti
                 </select>
                 <small>{t("settings.report_language_hint")}</small>
               </label>
-            </div>
+              </div>
+            </>
           )}
 
           {activeSection === "checks" && (

@@ -92,6 +92,96 @@ function stringifyErrorValue(value: unknown): string {
   }
 }
 
+export interface AuthStatus {
+  authenticated: boolean;
+  password_auth_enabled: boolean;
+}
+
+export interface MemoryLesson {
+  id: string;
+  scope: "target" | "technique";
+  status: "pending" | "approved" | "rejected";
+  signal: "success" | "deadend";
+  context: string;
+  lesson: string;
+  target_key: string | null;
+  confidence: number;
+  created_at: string;
+  tags: { tech: string[]; vuln_type: string };
+}
+
+export interface MemorySummary {
+  technique_count: number;
+  targets: { target_key: string; count: number }[];
+}
+
+export interface LessonCreatePayload {
+  scope: "technique" | "target";
+  target_key?: string;
+  signal: "success" | "deadend";
+  context: string;
+  lesson: string;
+  tech?: string[];
+  vuln_type?: string;
+  confidence?: number;
+}
+
+export function getMemorySummary(): Promise<MemorySummary> {
+  return requestJson<MemorySummary>("/api/memory/summary");
+}
+
+export function getMemoryLessons(params?: { scope?: string; target_key?: string; status?: string }): Promise<MemoryLesson[]> {
+  const q = new URLSearchParams();
+  if (params?.scope) q.set("scope", params.scope);
+  if (params?.target_key) q.set("target_key", params.target_key);
+  if (params?.status) q.set("status", params.status);
+  const qs = q.toString();
+  return requestJson<MemoryLesson[]>(`/api/memory/lessons${qs ? `?${qs}` : ""}`);
+}
+
+export function createMemoryLesson(payload: LessonCreatePayload): Promise<MemoryLesson> {
+  return requestJson<MemoryLesson>("/api/memory/lessons", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteMemoryLesson(lessonId: string): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(`/api/memory/lessons/${encodeURIComponent(lessonId)}`, { method: "DELETE" });
+}
+
+export function approveMemoryLesson(lessonId: string): Promise<MemoryLesson> {
+  return requestJson<MemoryLesson>(`/api/memory/lessons/${encodeURIComponent(lessonId)}/approve`, { method: "POST" });
+}
+
+export interface ChatReply {
+  intent: string;
+  reply: string;
+  task_id?: string;
+}
+
+export function sendChatMessage(message: string): Promise<ChatReply> {
+  return requestJson<ChatReply>("/api/chat/message", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
+
+export function getAuthStatus(): Promise<AuthStatus> {
+  return requestJson<AuthStatus>("/api/auth/status");
+}
+
+export function login(username: string, password: string): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export function logout(): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
+}
+
 export function getConfig(): Promise<ConfigView> {
   return requestJson<ConfigView>("/api/config");
 }
@@ -120,6 +210,10 @@ export function fetchProviderModels(payload: ProviderModelsRequest): Promise<Pro
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function getTask(taskId: string): Promise<TaskRecord> {
+  return requestJson<TaskRecord>(`/api/tasks/${encodeURIComponent(taskId)}`);
 }
 
 export function getTasks(): Promise<TaskRecord[]> {
