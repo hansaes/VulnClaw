@@ -796,3 +796,51 @@ pre { background: #080b10; border: 1px solid var(--border); border-radius: 8px; 
 .vw-modal-foot { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--border); }
 @keyframes vw-fade { from { opacity: 0; } }
 @keyframes vw-pop { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+
+/* ── 日志视图切换 ─────────────────────────────────────── */
+.vw-seg { display: flex; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 2px; gap: 2px; }
+.vw-seg button {
+  border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 5px 12px;
+  border-radius: 6px; cursor: pointer; white-space: nowrap;
+}
+.vw-seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,0.35); }
+
+/* ── 执行过程时间线 ───────────────────────────────────── */
+.vw-timeline { display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+.vw-tl-empty { padding: 24px; text-align: center; }
+.vw-tl-step {
+  background: linear-gradient(135deg, rgba(124,108,240,0.10), rgba(124,108,240,0.03));
+  border: 1px solid rgba(124,108,240,0.35); border-radius: 10px; padding: 10px 12px;
+}
+.vw-tl-head { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 6px; }
+.vw-tl-ico { font-size: 15px; }
+.vw-tl-ts { margin-left: auto; font-size: 11px; color: var(--faint); font-family: var(--mono, monospace); }
+.vw-tl-reason { margin: 0 0 8px; font-size: 13px; line-height: 1.6; color: var(--text); }
+.vw-tl-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.vw-tl-chip {
+  font-size: 11.5px; font-family: var(--mono, monospace); padding: 3px 9px; border-radius: 999px;
+  background: rgba(47,158,110,0.12); border: 1px solid rgba(47,158,110,0.35); color: #4ade80;
+}
+.vw-tl-evidence { font-size: 12px; color: var(--muted); background: rgba(0,0,0,0.25); border-radius: 8px; padding: 8px 10px; line-height: 1.6; }
+.vw-tl-ev-label { color: var(--faint); margin-right: 6px; }
+.vw-tl-item {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px;
+}
+.vw-tl-result { border-left: 3px solid #0ea5e9; }
+.vw-tl-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.vw-tl-tool-name { font-family: var(--mono, monospace); font-size: 12.5px; color: #7dd3fc; }
+.vw-tl-muted { color: var(--muted); font-size: 12.5px; }
+.vw-tl-toggle { margin-left: auto; font-size: 11.5px; color: var(--accent); background: none; border: 0; cursor: pointer; padding: 2px 4px; }
+.vw-tl-body { margin-top: 6px; }
+.vw-tl-pre {
+  margin: 0; font-size: 11.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word;
+  background: rgba(0,0,0,0.35); border-radius: 8px; padding: 8px 10px; color: var(--muted);
+  max-height: 120px; overflow: hidden;
+}
+.vw-tl-pre.full { max-height: 320px; overflow: auto; color: var(--text); }
+.vw-tl-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); padding: 2px 4px; }
+.vw-tl-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+.vw-tl-dot.ok { background: var(--green); }
+.vw-tl-dot.warn { background: var(--yellow, #eab308); }
+.vw-tl-dot.danger { background: var(--red); }
+.vw-tl-dot.info { background: #0ea5e9; }
