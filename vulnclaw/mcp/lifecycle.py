@@ -46,6 +46,22 @@ HTTP_TRANSPORT_TYPES = frozenset(
 )
 SSE_TRANSPORT_TYPES = frozenset({"sse", "sse-client", "sse_client", "sseclient"})
 
+
+def _expand_stdio_arg(value: str) -> str:
+    """Expand ~ and $VARS in stdio command/args (e.g. ~/.vulnclaw/hexstrike/…)."""
+    import os
+
+    return os.path.expanduser(os.path.expandvars(value))
+
+
+def _stdio_params(transport: Any) -> Any:
+    """Build StdioServerParameters with path expansion applied."""
+    return StdioServerParameters(
+        command=_expand_stdio_arg(transport.command or ""),
+        args=[_expand_stdio_arg(a) for a in (transport.args or [])],
+        env=transport.env,
+    )
+
 _BENIGN_SHUTDOWN_KEYWORDS = (
     "cancel scope",
     "generator didn't stop",
@@ -462,11 +478,7 @@ class MCPLifecycleManager(ProbeMixin):
             raise RuntimeError(f"missing MCP config for server {server_name}")
 
         transport = config.transport
-        server = StdioServerParameters(
-            command=transport.command or "",
-            args=transport.args or [],
-            env=transport.env,
-        )
+        server = _stdio_params(transport)
 
         timeout_s = self._tool_timeout_seconds(config)
         startup_s = self._startup_timeout_seconds(config)
@@ -506,11 +518,7 @@ class MCPLifecycleManager(ProbeMixin):
             raise RuntimeError(f"missing MCP config for server {server_name}")
 
         transport = config.transport
-        server = StdioServerParameters(
-            command=transport.command or "",
-            args=transport.args or [],
-            env=transport.env,
-        )
+        server = _stdio_params(transport)
         startup_s = self._startup_timeout_seconds(config)
 
         cm = stdio_client(server)
