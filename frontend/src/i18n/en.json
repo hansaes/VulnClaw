@@ -930,5 +930,12 @@
   "detail.tl_evidence": "Evidence",
   "detail.tl_tool": "Tool call",
   "detail.tl_result": "Tool result",
-  "detail.no_process_events": "No process yet — waiting for the agent…"
+  "detail.no_process_events": "No process yet — waiting for the agent…",
+  "models.fetch_models": "Fetch models",
+  "models.fetching": "Fetching…",
+  "models.fetch_need_key": "Enter the API key first",
+  "models.fetch_ok": "Found {count} models — type to search and pick one below",
+  "models.fetch_empty": "No models returned; you can type the model name manually",
+  "models.fetch_failed": "Fetch failed",
+  "models.f_model_pick": "Type to search or pick a model…"
 }
