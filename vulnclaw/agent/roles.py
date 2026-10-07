@@ -57,6 +57,7 @@ ROLE_REGISTRY: dict[str, AgentRole] = {
             "crypto_rsa_tree",
             "detect_encoding",
             "filter_fingerprint_plan",
+            "validate_finding",
         ),
         goal_template=(
             "Research objective: {objective}\n"
@@ -137,6 +138,7 @@ ROLE_REGISTRY: dict[str, AgentRole] = {
             "crypto_rsa_tree",
             "detect_encoding",
             "filter_fingerprint_plan",
+            "validate_finding",
         ),
         goal_template=(
             "Execution objective: {objective}\n"

@@ -1103,4 +1103,26 @@ def append_builtin_tool_schemas(
             },
         }
     )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "validate_finding",
+                "description": (
+                    "L3 deterministic validator: pure-code final verdict on a candidate finding, no LLM. "
+                    "Validators: blind-sqli, idor, xss, ssrf. Input structured baseline/probe evidence; "
+                    "output PASS/FAIL + verification log. Only PASS findings enter the formal report. "
+                    "Call AFTER collecting differential evidence (baseline + probe pairs)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "validator": {"type": "string", "description": "One of: blind-sqli, idor, xss, ssrf."},
+                        "evidence": {"type": "object", "description": "Structured evidence dict (see each validator's required keys)."},
+                    },
+                    "required": ["validator", "evidence"],
+                },
+            },
+        }
+    )
 
