@@ -49,6 +49,7 @@ ROLE_REGISTRY: dict[str, AgentRole] = {
             "http_probe_batch",
             "search*",
             "*search*",
+            "hypothesis_*",
         ),
         goal_template=(
             "Research objective: {objective}\n"
@@ -120,6 +121,8 @@ ROLE_REGISTRY: dict[str, AgentRole] = {
             "submit*",
             "*scan*",
             "*recon*",
+            "hypothesis_*",
+            "get_script_template",
         ),
         goal_template=(
             "Execution objective: {objective}\n"

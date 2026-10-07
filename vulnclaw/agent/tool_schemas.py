@@ -891,4 +891,85 @@ def append_builtin_tool_schemas(
             },
         }
     )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "hypothesis_add",
+                "description": (
+                    "Register an investigation lead (hypothesis): 'this looks like X because Y'. "
+                    "Use for every promising lead from recon — e.g. 'admin panel on :8080 may have "
+                    "default creds', 'parameter id looks injectable'. The tracker enforces a circuit "
+                    "breaker: 3 failed tests or 20 min without progress auto-abandons it."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "One-line lead, e.g. 'SQLi in /search?q='."},
+                        "description": {"type": "string", "description": "Why this looks promising (evidence so far)."},
+                        "test_plan": {"type": "string", "description": "How you plan to test it."},
+                    },
+                    "required": ["title"],
+                },
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "hypothesis_test",
+                "description": (
+                    "Record one test of a hypothesis. success=true resets the strike counter; "
+                    "success=false adds a strike (3 strikes auto-abandons). Always call after testing a lead."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": "Hypothesis id, e.g. 'h01'."},
+                        "success": {"type": "boolean", "description": "Did the test move the lead forward?"},
+                        "note": {"type": "string", "description": "What happened in this test."},
+                        "evidence_id": {"type": "string", "description": "Evidence id supporting the test (optional)."},
+                    },
+                    "required": ["id", "success"],
+                },
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "hypothesis_list",
+                "description": (
+                    "List all hypotheses with status (active/testing/confirmed/abandoned). "
+                    "Abandoned ones keep their reopen condition — check them when new evidence arrives."
+                ),
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    )
+    append_tool(
+        {
+            "type": "function",
+            "function": {
+                "name": "get_script_template",
+                "description": (
+                    "Get a deterministic exploit/scan script skeleton (pwn, web, scan, crypto). "
+                    "Fill in ONLY the marked FILL-IN sections instead of writing from scratch — "
+                    "template-first succeeds an order of magnitude more often. Then run with python_execute."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "description": "Template kind: pwn (pwntools exploit), web (requests PoC), scan (port/banner scanner), crypto.",
+                        },
+                    },
+                    "required": ["kind"],
+                },
+            },
+        }
+    )
 
