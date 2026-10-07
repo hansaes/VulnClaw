@@ -100,10 +100,11 @@ def dangerous_tool_refusal(tool_name: str, agent: AgentContext | None = None) ->
     if tool_name not in DANGEROUS_TOOLS:
         return None
     if is_subagent(agent):
-        return (
-            f"[!] {tool_name} is not available to subagents. Arbitrary "
-            "execution requests must be issued by the main agent and "
-            "approved by the local operator."
+        from vulnclaw.agent.tool_errors import permission_denied
+        return permission_denied(
+            tool_name,
+            "not available to subagents. Arbitrary execution requests must be "
+            "issued by the main agent and approved by the local operator.",
         )
     return None
 
@@ -646,7 +647,11 @@ async def execute_shell_command(agent: AgentContext, args: dict[str, Any]) -> st
 
     command = str(args.get("command") or args.get("cmd") or "").strip()
     if not command:
-        return "[!] shell_command requires command"
+        from vulnclaw.agent.tool_errors import schema_violation
+        return schema_violation(
+            "shell_command", "requires non-empty 'command'",
+            '{"command": "nmap -sV target", "timeout_ms": 30000}',
+        )
     scope_violation = _validate_command_url_scope(agent, command)
     if scope_violation:
         return scope_violation
@@ -654,9 +659,17 @@ async def execute_shell_command(agent: AgentContext, args: dict[str, Any]) -> st
     try:
         workdir = _resolve_workdir(args.get("workdir"))
     except OSError as exc:
-        return f"[!] shell_command invalid workdir: {exc}"
+        from vulnclaw.agent.tool_errors import schema_violation
+        return schema_violation(
+            "shell_command", f"invalid workdir: {exc}",
+            'omit "workdir" to use the default, or pass an existing directory',
+        )
     if not workdir.exists() or not workdir.is_dir():
-        return f"[!] shell_command workdir does not exist or is not a directory: {workdir}"
+        from vulnclaw.agent.tool_errors import not_found
+        return not_found(
+            f"shell_command workdir does not exist or is not a directory: {workdir}",
+            "",
+        )
 
     timeout_ms = int(args.get("timeout_ms") or 10000)
     timeout_ms = max(1000, min(timeout_ms, 120000))
@@ -700,16 +713,22 @@ async def execute_shell_command(agent: AgentContext, args: dict[str, Any]) -> st
             ),
         )
     except FileNotFoundError as exc:
-        return f"[!] shell_command failed: shell executable not found ({exc})"
+        from vulnclaw.agent.tool_errors import tool_error, Err
+        return tool_error(
+            Err.EXEC_FAILED,
+            f"shell_command failed: shell executable not found ({exc})",
+            'The "shell" argument names a missing binary. Omit "shell" to use the default.',
+            retryable=True,
+        )
     except Exception as exc:
-        return f"[!] shell_command failed: {exc.__class__.__name__}: {exc}"
+        from vulnclaw.agent.tool_errors import exec_failed
+        return exec_failed("shell_command", f"{exc.__class__.__name__}: {exc}")
 
     if timed_out:
+        from vulnclaw.agent.tool_errors import timed_out
         return (
-            f"[!] shell_command timed out after {timeout_ms}ms\n"
-            f"Command: {command}\n"
-            f"Workdir: {workdir}\n"
-            "Output:\n(process tree terminated)"
+            timed_out("shell_command", timeout_ms)
+            + f"\nCommand: {command}\nWorkdir: {workdir}\nOutput:\n(process tree terminated)"
         )
 
     result_returncode = returncode
@@ -1316,6 +1335,9 @@ async def execute_mcp_tool(agent: AgentContext, tool_name: str, args: dict[str, 
 
     if tool_name == "filter_fingerprint_plan":
         return _execute_filter_fingerprint_plan(args)
+
+    if tool_name == "validate_finding":
+        return _execute_validate_finding(args)
 
     if tool_name == "load_skill_reference":
         try:
@@ -2319,11 +2341,16 @@ def _execute_hypothesis_list(agent: AgentContext) -> str:
 
 def _execute_get_script_template(args: dict[str, Any]) -> str:
     from vulnclaw.agent.script_templates import get_template, list_templates
+    from vulnclaw.agent.tool_errors import schema_violation
 
     kind = str(args.get("kind", "")).strip().lower()
     source = get_template(kind)
     if source is None:
-        return f"[!] unknown template kind: {kind}\n{list_templates()}"
+        return schema_violation(
+            "get_script_template",
+            f"unknown template kind: {kind!r}",
+            '{"kind": "web"} — ' + list_templates(),
+        )
     return (
         f"[script template: {kind}]\n"
         "Fill in ONLY the FILL-IN sections, then run with python_execute. "
@@ -2346,13 +2373,18 @@ def _get_roi_tracker(agent: AgentContext) -> Any:
 
 
 def _execute_roi_gate_mark(agent: AgentContext, args: dict[str, Any]) -> str:
+    from vulnclaw.agent.tool_errors import schema_violation
     tracker = _get_roi_tracker(agent)
     gid = str(args.get("id", "")).strip()
     status = str(args.get("status", "")).strip().lower()
     gate = tracker.mark(gid, status, note=str(args.get("note", "")),
                         evidence_id=str(args.get("evidence_id", "")))
     if gate is None:
-        return f"[!] unknown gate id or bad status: {gid}/{status}"
+        return schema_violation(
+            "roi_gate_mark",
+            f"unknown gate id or bad status: {gid!r}/{status!r} (status must be passed/failed/na/pending)",
+            '{"id": "idor-dual-account", "status": "passed", "note": "..."}',
+        )
     pending = tracker.pending()
     if not pending:
         return f"[gate {gid} → {status}] All 5 high-ROI gates resolved. Recon may complete."
@@ -2419,10 +2451,14 @@ def _execute_crypto_rsa_tree() -> str:
 
 def _execute_detect_encoding(args: dict[str, Any]) -> str:
     from vulnclaw.agent.crypto_router import detect_encoding
+    from vulnclaw.agent.tool_errors import schema_violation
 
     text = str(args.get("text", ""))
     if not text.strip():
-        return "[!] detect_encoding requires text"
+        return schema_violation(
+            "detect_encoding", "requires non-empty 'text'",
+            '{"text": "ZmxhZ3t0ZXN0fQ=="}',
+        )
     hits = detect_encoding(text)
     if not hits:
         return "[encoding] no common encoding detected (tried base64/hex/rot/reversed)"
@@ -2436,6 +2472,27 @@ def _execute_filter_fingerprint_plan(args: dict[str, Any]) -> str:
     from vulnclaw.agent.filter_fingerprint import fingerprint_plan
 
     return fingerprint_plan(str(args.get("param_name", "input")))
+
+
+def _execute_validate_finding(args: dict[str, Any]) -> str:
+    from vulnclaw.agent.tool_errors import schema_violation
+    from vulnclaw.validation import list_validators, run_validation
+    # Import validator modules so they self-register
+    import vulnclaw.validation.sqli  # noqa: F401
+    import vulnclaw.validation.idor  # noqa: F401
+    import vulnclaw.validation.xss  # noqa: F401
+    import vulnclaw.validation.ssrf  # noqa: F401
+
+    validator = str(args.get("validator", "")).strip()
+    evidence = args.get("evidence")
+    if not validator or not isinstance(evidence, dict):
+        return schema_violation(
+            "validate_finding",
+            "requires 'validator' (string) and 'evidence' (object)",
+            '{"validator": "blind-sqli", "evidence": {"mode": "time", "baseline_ms": 120, "sleep_probe_ms": 5200}}',
+        )
+    verdict = run_validation(validator, evidence)
+    return verdict.render() + "\n\n" + list_validators()
 
 
 async def execute_python(agent: AgentContext, args: dict[str, Any]) -> str:
