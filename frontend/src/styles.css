@@ -620,3 +620,15 @@ pre { background: #080b10; border: 1px solid var(--border); border-radius: 8px; 
 @media (max-width: 1080px) {
   .report-center-grid, .report-filter-grid, .mode-grid, .settings-mode-grid, .diagnostics-grid { grid-template-columns: 1fr; }
 }
+
+/* ---------------- 漏洞分组 ---------------- */
+.vw-group-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 16px; cursor: pointer; user-select: none;
+  border-bottom: 1px solid var(--border);
+  background: rgba(148, 163, 184, 0.03);
+  transition: background 0.12s;
+}
+.vw-group-head:hover { background: rgba(148, 163, 184, 0.06); }
+.vw-group-target { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.vw-group-chev { margin-left: auto; color: var(--faint); font-size: 11px; }

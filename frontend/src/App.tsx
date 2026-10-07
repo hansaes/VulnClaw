@@ -287,6 +287,9 @@ export function App() {
           onSelectTarget={setSelectedTarget}
           onOpenHome={() => navigateToView("home")}
           onOpenReports={(path) => openReports(selectedTarget, path, Boolean(path))}
+          onCreateTask={handleCreateTask}
+          onVerifyDone={(task) => openTaskDetail(task)}
+          onBulkVerifyDone={() => navigateToView("history")}
         />
       )}
 

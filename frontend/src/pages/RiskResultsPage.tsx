@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { generateTargetReport } from "../api/web";
-import { useTargetQuery, useTargetsQuery } from "../hooks/queries";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { useTargetsQuery } from "../hooks/queries";
 import { useT, type TFunction } from "../i18n";
-import type { TargetView } from "../types/api";
+import type { TaskCommand, TaskOptions, TaskRecord, TargetView } from "../types/api";
 import { formatFindingStatus, formatSeverityLabel } from "../utils/taskLabels";
 
 interface RiskResultsPageProps {
@@ -10,6 +11,9 @@ interface RiskResultsPageProps {
   onSelectTarget: (target: string | null) => void;
   onOpenHome: () => void;
   onOpenReports: (path?: string) => void;
+  onCreateTask: (command: TaskCommand, target: string, resume: boolean, options: TaskOptions) => Promise<TaskRecord>;
+  onVerifyDone: (task: TaskRecord) => void;
+  onBulkVerifyDone: () => void;
 }
 
 interface Finding {
@@ -17,13 +21,19 @@ interface Finding {
   title: string;
   severity: string;
   sevKey: "critical" | "high" | "medium" | "low" | "info";
-  status: string;
   statusKey: "pending" | "verified" | "manual" | "ignored";
+  statusRaw: string;
   evidence: string;
   impact: string;
   recommendation: string;
   type: string;
   target: string;
+  cve: string | null;
+}
+
+interface VulnGroup {
+  target: string;
+  findings: Finding[];
 }
 
 function asText(value: unknown, fallback = ""): string {
@@ -39,12 +49,17 @@ function normalizeSeverity(value: unknown): { label: string; key: Finding["sevKe
   return { label: asText(value, "Info"), key: "info" };
 }
 
-function normalizeStatus(value: unknown): { raw: string; key: Finding["statusKey"] } {
+function normalizeStatusKey(value: unknown): Finding["statusKey"] {
   const text = asText(value, "pending").toLowerCase();
-  if (text.includes("verif")) return { raw: text, key: "verified" };
-  if (text.includes("dismiss") || text.includes("false")) return { raw: text, key: "ignored" };
-  if (text.includes("manual")) return { raw: text, key: "manual" };
-  return { raw: text, key: "pending" };
+  if (text.includes("verif")) return "verified";
+  if (text.includes("dismiss") || text.includes("false")) return "ignored";
+  if (text.includes("manual")) return "manual";
+  return "pending";
+}
+
+function extractCve(title: string, evidence: string, type: string): string | null {
+  const m = `${title} ${evidence} ${type}`.match(/CVE-\d{4}-\d{4,7}/i);
+  return m ? m[0].toUpperCase() : null;
 }
 
 function extractEvidence(raw: Record<string, unknown>): string {
@@ -54,33 +69,37 @@ function extractEvidence(raw: Record<string, unknown>): string {
   return asText(raw.description, "");
 }
 
-function extractFindings(target: TargetView | undefined | null, t: TFunction): Finding[] {
-  const rawFindings = (target?.raw as Record<string, unknown> | undefined)?.findings;
-  if (!Array.isArray(rawFindings) || !target) return [];
+function extractFindings(target: TargetView, t: TFunction): Finding[] {
+  const rawFindings = (target.raw as Record<string, unknown> | undefined)?.findings;
+  if (!Array.isArray(rawFindings)) return [];
   return rawFindings.slice(0, 200).map((item, index) => {
     const raw = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
     const sev = normalizeSeverity(raw.severity);
-    const st = normalizeStatus(raw.verification_status ?? raw.lifecycle_status ?? (raw.verified ? "verified" : "pending"));
+    const title = asText(raw.title, t("vuln.untitled", { index: String(index + 1) }));
+    const evidence = extractEvidence(raw);
+    const type = asText(raw.vuln_type, asText(raw.category, ""));
     return {
       id: asText(raw.finding_id, `${target.target}-${index}`),
-      title: asText(raw.title, t("vuln.untitled", { index: String(index + 1) })),
+      title,
       severity: sev.label,
       sevKey: sev.key,
-      status: asText(raw.verification_status, asText(raw.lifecycle_status, "")),
-      statusKey: st.key,
-      evidence: extractEvidence(raw),
+      statusKey: normalizeStatusKey(raw.verification_status ?? raw.lifecycle_status ?? (raw.verified ? "verified" : "pending")),
+      statusRaw: asText(raw.verification_status, asText(raw.lifecycle_status, "")),
+      evidence,
       impact: asText(raw.impact, asText(raw.risk, "")),
       recommendation: asText(raw.recommendation, asText(raw.remediation, "")),
-      type: asText(raw.vuln_type, asText(raw.category, "")),
+      type,
       target: target.target,
+      cve: extractCve(title, evidence, type),
     };
   });
 }
 
 function downloadCsv(filename: string, rows: Finding[], t: TFunction) {
-  const head = ["id", "title", "severity", "status", "type", "target"];
+  void t;
+  const head = ["id", "title", "severity", "status", "type", "target", "cve"];
   const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
-  const body = rows.map((f) => [f.id, f.title, f.severity, formatFindingStatus(f.status), f.type, f.target].map(esc).join(","));
+  const body = rows.map((f) => [f.id, f.title, f.severity, f.statusRaw || f.statusKey, f.type, f.target, f.cve ?? ""].map(esc).join(","));
   const csv = "\uFEFF" + [head.join(","), ...body].join("\n");
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
   const a = document.createElement("a");
@@ -92,60 +111,92 @@ function downloadCsv(filename: string, rows: Finding[], t: TFunction) {
 
 const SEV_ORDER: Record<Finding["sevKey"], number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
-export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, onOpenReports }: RiskResultsPageProps) {
+export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, onOpenReports, onCreateTask, onVerifyDone, onBulkVerifyDone }: RiskResultsPageProps) {
   const { t } = useT();
   const targetsQuery = useTargetsQuery();
-  const targetQuery = useTargetQuery(selectedTarget);
 
   const [sevFilter, setSevFilter] = useState<string>("all");
   const [stFilter, setStFilter] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [drawer, setDrawer] = useState<Finding | null>(null);
+  const [verifyList, setVerifyList] = useState<Finding[] | null>(null);
+  const [verifying, setVerifying] = useState(false);
   const [busyReport, setBusyReport] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!selectedTarget && targetsQuery.data?.length) {
-      onSelectTarget(targetsQuery.data[0].target);
+  const groups = useMemo<VulnGroup[]>(() => {
+    const q = query.toLowerCase();
+    const out: VulnGroup[] = [];
+    for (const target of targetsQuery.data ?? []) {
+      if (selectedTarget && target.target !== selectedTarget) continue;
+      const findings = extractFindings(target, t)
+        .filter((f) => {
+          if (sevFilter !== "all" && f.sevKey !== sevFilter) return false;
+          if (stFilter !== "all" && f.statusKey !== stFilter) return false;
+          if (q && !`${f.title} ${f.id} ${f.type} ${f.cve ?? ""}`.toLowerCase().includes(q)) return false;
+          return true;
+        })
+        .sort((a, b) => SEV_ORDER[a.sevKey] - SEV_ORDER[b.sevKey]);
+      if (findings.length) out.push({ target: target.target, findings });
     }
-  }, [selectedTarget, targetsQuery.data, onSelectTarget]);
+    return out;
+  }, [targetsQuery.data, selectedTarget, sevFilter, stFilter, query, t]);
 
-  useEffect(() => {
-    setChecked({});
-    setDrawer(null);
-  }, [selectedTarget]);
-
-  const findings = useMemo(
-    () => extractFindings(targetQuery.data, t).sort((a, b) => SEV_ORDER[a.sevKey] - SEV_ORDER[b.sevKey]),
-    [targetQuery.data, t],
+  const allFindings = useMemo(() => groups.flatMap((g) => g.findings), [groups]);
+  const totalCount = useMemo(
+    () => (targetsQuery.data ?? []).reduce((n, x) => n + (x.findings_count ?? 0), 0),
+    [targetsQuery.data],
   );
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: findings.length, critical: 0, high: 0, medium: 0, low: 0 };
-    for (const f of findings) c[f.sevKey] = (c[f.sevKey] ?? 0) + 1;
+    const c: Record<string, number> = { all: 0, critical: 0, high: 0, medium: 0, low: 0 };
+    for (const f of allFindings) {
+      c.all++;
+      c[f.sevKey] = (c[f.sevKey] ?? 0) + 1;
+    }
     return c;
-  }, [findings]);
+  }, [allFindings]);
 
-  const filtered = useMemo(() => {
-    const q = query.toLowerCase();
-    return findings.filter((f) => {
-      if (sevFilter !== "all" && f.sevKey !== sevFilter) return false;
-      if (stFilter !== "all" && f.statusKey !== stFilter) return false;
-      if (q && !`${f.title} ${f.id} ${f.type}`.toLowerCase().includes(q)) return false;
-      return true;
+  const checkedList = useMemo(() => allFindings.filter((f) => checked[f.id]), [allFindings, checked]);
+
+  function toggleGroupAll(group: VulnGroup) {
+    const allOn = group.findings.every((f) => checked[f.id]);
+    setChecked((prev) => {
+      const next = { ...prev };
+      for (const f of group.findings) {
+        if (allOn) delete next[f.id];
+        else next[f.id] = true;
+      }
+      return next;
     });
-  }, [findings, sevFilter, stFilter, query]);
+  }
 
-  const checkedList = useMemo(() => filtered.filter((f) => checked[f.id]), [filtered, checked]);
-  const allChecked = filtered.length > 0 && filtered.every((f) => checked[f.id]);
-
-  function toggleAll() {
-    if (allChecked) setChecked({});
-    else {
-      const next: Record<string, boolean> = {};
-      filtered.forEach((f) => { next[f.id] = true; });
-      setChecked(next);
+  async function handleVerify(list: Finding[]) {
+    if (!list.length || verifying) return;
+    setVerifying(true);
+    setError(null);
+    try {
+      let last: TaskRecord | null = null;
+      for (const f of list) {
+        const options: TaskOptions = f.cve ? { cve: f.cve } : {};
+        last = await onCreateTask("exploit", f.target, true, options);
+      }
+      setVerifyList(null);
+      setChecked({});
+      if (list.length === 1 && last) {
+        setNotice(t("vuln.verify_created", { title: list[0].title }));
+        onVerifyDone(last);
+      } else {
+        setNotice(t("vuln.bulk_verified", { count: String(list.length) }));
+        onBulkVerifyDone();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("vuln.verify_failed"));
+    } finally {
+      setVerifying(false);
     }
   }
 
@@ -180,27 +231,31 @@ export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, on
     pending: "vw-st-open", verified: "vw-st-confirmed", manual: "vw-st-fixing", ignored: "vw-st-ignored",
   };
 
+  const verifyCves = (verifyList ?? []).map((f) => f.cve).filter(Boolean) as string[];
+
   return (
     <div>
       <div className="vw-page-head">
         <div>
           <h1>{t("vuln.title")}</h1>
-          <p>{t("vuln.subtitle", { count: String(findings.length) })}</p>
+          <p>{t("vuln.subtitle_grouped", { groups: String(groups.length), count: String(allFindings.length) })}</p>
         </div>
         <button
           className="vw-btn vw-btn-ghost vw-btn-sm"
           type="button"
-          disabled={!filtered.length}
-          onClick={() => downloadCsv(`vulns-${selectedTarget ?? "all"}.csv`, filtered, t)}
+          disabled={!allFindings.length}
+          onClick={() => downloadCsv(`vulns-${selectedTarget ?? "all"}.csv`, allFindings, t)}
         >
           {t("vuln.export")}
         </button>
       </div>
 
       {notice && <div className="vw-ok-box">{notice}</div>}
+      {error && <div className="vw-err">{error}</div>}
 
       <div className="vw-toolbar">
         <select className="vw-input" value={selectedTarget ?? ""} onChange={(e) => onSelectTarget(e.target.value || null)}>
+          <option value="">{t("vuln.all_targets")}</option>
           {(targetsQuery.data ?? []).map((x) => (
             <option key={x.target} value={x.target}>{x.target}</option>
           ))}
@@ -224,6 +279,9 @@ export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, on
 
       <div className={`vw-bulk-bar ${checkedList.length ? "on" : ""}`}>
         <span>{t("vuln.selected", { count: String(checkedList.length) })}</span>
+        <button className="vw-btn vw-btn-primary vw-btn-xs" type="button" onClick={() => setVerifyList(checkedList)}>
+          {t("vuln.verify_selected")}
+        </button>
         <button className="vw-btn vw-btn-ghost vw-btn-xs" type="button" onClick={() => downloadCsv("vulns-selected.csv", checkedList, t)}>
           {t("vuln.export_selected")}
         </button>
@@ -232,51 +290,103 @@ export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, on
         </button>
       </div>
 
-      <div className="vw-tbl-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th><input type="checkbox" className="vw-rowchk" checked={allChecked} onChange={toggleAll} aria-label={t("vuln.select_all")} /></th>
-              <th>{t("vuln.col_sev")}</th>
-              <th>{t("vuln.col_title")}</th>
-              <th>{t("vuln.col_type")}</th>
-              <th>{t("vuln.col_status")}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((f) => (
-              <tr key={f.id} className="vw-row" onClick={() => setDrawer(f)}>
-                <td onClick={(e) => e.stopPropagation()}>
-                  <input
-                    type="checkbox" className="vw-rowchk" checked={Boolean(checked[f.id])}
-                    onChange={() => setChecked((p) => ({ ...p, [f.id]: !p[f.id] }))}
-                    aria-label={f.title}
-                  />
-                </td>
-                <td><span className={`vw-sev vw-sev-${f.sevKey}`}>{formatSeverityLabel(f.severity)}</span></td>
-                <td>
-                  <div className="vw-t-title">{f.title}</div>
-                  <div className="vw-t-sub">{f.id}</div>
-                </td>
-                <td style={{ color: "var(--muted)" }}>{f.type || "—"}</td>
-                <td><span className={`vw-st ${stBadge[f.statusKey]}`}>{formatFindingStatus(f.statusKey === "pending" && !f.status ? "pending" : f.status || f.statusKey)}</span></td>
-                <td><button className="vw-btn vw-btn-ghost vw-btn-xs" type="button">{t("vuln.detail")}</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!targetQuery.isLoading && filtered.length === 0 && (
+      {groups.map((group) => {
+        const isCollapsed = Boolean(collapsed[group.target]);
+        const groupAllChecked = group.findings.every((f) => checked[f.id]);
+        const crit = group.findings.filter((f) => f.sevKey === "critical" || f.sevKey === "high").length;
+        return (
+          <div className="vw-tbl-wrap" key={group.target} style={{ marginBottom: 16 }}>
+            <div
+              className="vw-group-head"
+              onClick={() => setCollapsed((p) => ({ ...p, [group.target]: !p[group.target] }))}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === "Enter" && setCollapsed((p) => ({ ...p, [group.target]: !p[group.target] }))}
+            >
+              <span onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox" className="vw-rowchk" checked={groupAllChecked}
+                  onChange={toggleGroupAll.bind(null, group)}
+                  aria-label={t("vuln.select_group", { target: group.target })}
+                />
+              </span>
+              <span className="vw-group-target vw-mono">{group.target}</span>
+              <span className="vw-badge vw-b-done">{t("vuln.findings_count", { count: String(group.findings.length) })}</span>
+              {crit > 0 && <span className="vw-badge vw-b-fail">{t("vuln.high_risk", { count: String(crit) })}</span>}
+              <span className="vw-group-chev">{isCollapsed ? "▶" : "▼"}</span>
+            </div>
+            {!isCollapsed && (
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: 36 }} />
+                    <th>{t("vuln.col_sev")}</th>
+                    <th>{t("vuln.col_title")}</th>
+                    <th>{t("vuln.col_type")}</th>
+                    <th>{t("vuln.col_status")}</th>
+                    <th style={{ width: 120 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.findings.map((f) => (
+                    <tr key={f.id} className="vw-row" onClick={() => setDrawer(f)}>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox" className="vw-rowchk" checked={Boolean(checked[f.id])}
+                          onChange={() => setChecked((p) => ({ ...p, [f.id]: !p[f.id] }))}
+                          aria-label={f.title}
+                        />
+                      </td>
+                      <td><span className={`vw-sev vw-sev-${f.sevKey}`}>{formatSeverityLabel(f.severity)}</span></td>
+                      <td>
+                        <div className="vw-t-title">{f.title}</div>
+                        <div className="vw-t-sub">{f.cve ?? f.id}</div>
+                      </td>
+                      <td style={{ color: "var(--muted)" }}>{f.type || "—"}</td>
+                      <td><span className={`vw-st ${stBadge[f.statusKey]}`}>{formatFindingStatus(f.statusRaw || f.statusKey)}</span></td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <button
+                          className="vw-btn vw-btn-ghost vw-btn-xs" type="button"
+                          onClick={(e) => { e.stopPropagation(); setVerifyList([f]); }}
+                        >
+                          {t("vuln.verify")}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        );
+      })}
+
+      {!targetsQuery.isLoading && groups.length === 0 && (
+        <div className="vw-tbl-wrap">
           <div className="vw-empty">
-            {findings.length === 0 ? t("vuln.empty") : t("vuln.no_match")}
-            {findings.length === 0 && (
+            {totalCount === 0 ? t("vuln.empty") : t("vuln.no_match")}
+            {totalCount === 0 && (
               <div style={{ marginTop: 12 }}>
                 <button className="vw-btn vw-btn-primary vw-btn-sm" type="button" onClick={onOpenHome}>{t("vuln.new_task")}</button>
               </div>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={verifyList !== null}
+        title={t("vuln.verify_title")}
+        copy={
+          verifyList && verifyList.length === 1
+            ? t("vuln.verify_copy_one", { title: verifyList[0].title, target: verifyList[0].target, cve: verifyList[0].cve ?? t("vuln.no_cve") })
+            : t("vuln.verify_copy_many", { count: String(verifyList?.length ?? 0), cves: verifyCves.length ? verifyCves.join(", ") : t("vuln.no_cve") })
+        }
+        tone="primary"
+        confirmLabel={verifying ? t("vuln.verifying") : t("vuln.verify_launch")}
+        onCancel={() => { if (!verifying) setVerifyList(null); }}
+        onConfirm={() => { if (verifyList) void handleVerify(verifyList); }}
+      />
 
       <div className={`vw-scrim ${drawer ? "on" : ""}`} onClick={() => setDrawer(null)} />
       <aside className={`vw-drawer ${drawer ? "on" : ""}`} aria-hidden={!drawer}>
@@ -287,8 +397,8 @@ export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, on
                 <h2>{drawer.title}</h2>
                 <div className="meta">
                   <span className={`vw-sev vw-sev-${drawer.sevKey}`}>{formatSeverityLabel(drawer.severity)}</span>
-                  <span className="vw-mono" style={{ fontSize: 12.5, color: "var(--muted)" }}>{drawer.id}</span>
-                  <span className={`vw-st ${stBadge[drawer.statusKey]}`}>{formatFindingStatus(drawer.status || drawer.statusKey)}</span>
+                  <span className="vw-mono" style={{ fontSize: 12.5, color: "var(--muted)" }}>{drawer.cve ?? drawer.id}</span>
+                  <span className={`vw-st ${stBadge[drawer.statusKey]}`}>{formatFindingStatus(drawer.statusRaw || drawer.statusKey)}</span>
                 </div>
               </div>
               <button className="vw-icon-btn" type="button" onClick={() => setDrawer(null)} aria-label={t("vuln.close")}>
@@ -300,6 +410,7 @@ export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, on
                 <h4>{t("vuln.d_info")}</h4>
                 <div className="vw-kv"><span className="k">{t("vuln.d_target")}</span><span className="v vw-mono">{drawer.target}</span></div>
                 <div className="vw-kv"><span className="k">{t("vuln.d_type")}</span><span className="v">{drawer.type || "—"}</span></div>
+                {drawer.cve && <div className="vw-kv"><span className="k">CVE</span><span className="v vw-mono">{drawer.cve}</span></div>}
               </div>
               {drawer.evidence && (
                 <div className="vw-d-sec">
@@ -321,7 +432,10 @@ export function RiskResultsPage({ selectedTarget, onSelectTarget, onOpenHome, on
               )}
             </div>
             <div className="vw-drawer-foot">
-              <button className="vw-btn vw-btn-primary vw-btn-sm" type="button" disabled={busyReport} onClick={() => handleGenerateReport(drawer)}>
+              <button className="vw-btn vw-btn-primary vw-btn-sm" type="button" onClick={() => { setDrawer(null); setVerifyList([drawer]); }}>
+                {t("vuln.verify")}
+              </button>
+              <button className="vw-btn vw-btn-ghost vw-btn-sm" type="button" disabled={busyReport} onClick={() => handleGenerateReport(drawer)}>
                 {busyReport ? t("vuln.reporting") : t("vuln.gen_report")}
               </button>
               <button className="vw-btn vw-btn-ghost vw-btn-sm" type="button" onClick={() => downloadCsv(`vuln-${drawer.id}.csv`, [drawer], t)}>
