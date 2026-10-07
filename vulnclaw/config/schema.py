@@ -138,6 +138,17 @@ PROVIDER_PRESETS: dict[LLMProvider, dict[str, str]] = {
 }
 
 
+class ModelProfileConfig(BaseModel):
+    """A named, switchable LLM model configuration."""
+
+    id: str = Field(min_length=1, max_length=64)
+    label: str = Field(default="", max_length=128)
+    provider: str = Field(default="openai", max_length=64)
+    model: str = Field(default="", max_length=160)
+    base_url: str = Field(default="", max_length=512)
+    api_key: str = Field(default="", max_length=512)
+
+
 class LLMConfig(BaseModel):
     """LLM provider configuration."""
 
@@ -179,6 +190,14 @@ class LLMConfig(BaseModel):
     model: str = Field(
         default=PROVIDER_PRESETS[LLMProvider.OPENAI]["default_model"],
         description="Model name to use (auto-filled by provider)",
+    )
+    model_profiles: list[ModelProfileConfig] = Field(
+        default_factory=list,
+        description="Named model configurations the Web UI can switch between.",
+    )
+    active_model_profile_id: str = Field(
+        default="",
+        description="ID of the active model profile (empty = manual llm.* values).",
     )
     website_url: str = Field(
         default="",

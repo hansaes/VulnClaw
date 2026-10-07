@@ -620,3 +620,103 @@ pre { background: #080b10; border: 1px solid var(--border); border-radius: 8px; 
 @media (max-width: 1080px) {
   .report-center-grid, .report-filter-grid, .mode-grid, .settings-mode-grid, .diagnostics-grid { grid-template-columns: 1fr; }
 }
+
+/* ---------------- 漏洞分组 ---------------- */
+.vw-group-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 16px; cursor: pointer; user-select: none;
+  border-bottom: 1px solid var(--border);
+  background: rgba(148, 163, 184, 0.03);
+  transition: background 0.12s;
+}
+.vw-group-head:hover { background: rgba(148, 163, 184, 0.06); }
+.vw-group-target { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.vw-group-chev { margin-left: auto; color: var(--faint); font-size: 11px; }
+
+/* ---------------- 登录页 ---------------- */
+.vw-login-wrap {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: radial-gradient(1200px 600px at 50% -10%, rgba(56, 189, 248, 0.08), transparent),
+    var(--bg);
+}
+.vw-login-card {
+  width: 100%; max-width: 380px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 28px; display: flex; flex-direction: column; gap: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+.vw-login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.vw-login-logo {
+  width: 42px; height: 42px; border-radius: 10px;
+  background: linear-gradient(135deg, #38bdf8, #818cf8);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 20px; color: #04121f;
+}
+.vw-login-brand h1 { font-size: 18px; margin: 0; }
+.vw-login-brand p { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+.vw-field { display: flex; flex-direction: column; gap: 6px; }
+.vw-field > span { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.vw-field .vw-input { width: 100%; }
+.vw-login-hint { font-size: 12px; color: var(--faint); margin: 0; text-align: center; }
+
+/* ---------------- 记忆 ---------------- */
+.vw-mem-stats { display: flex; gap: 12px; margin: 4px 0 16px; }
+.vw-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.vw-tab {
+  padding: 9px 16px; background: none; border: none; cursor: pointer;
+  color: var(--muted); font-size: 13.5px; font-weight: 600;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.vw-tab.on { color: var(--text); border-bottom-color: var(--accent); }
+.vw-mem-list { display: flex; flex-direction: column; gap: 12px; }
+.vw-mem-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 16px;
+}
+.vw-mem-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.vw-mem-conf { font-size: 12px; color: var(--faint); }
+.vw-mem-actions { margin-left: auto; display: flex; gap: 6px; }
+.vw-mem-context { font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.vw-mem-lesson { font-size: 13.5px; color: var(--text); line-height: 1.6; white-space: pre-wrap; }
+.vw-mem-tags { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+
+/* ---------------- Agent 聊天 ---------------- */
+.vw-chat { display: flex; flex-direction: column; height: calc(100vh - 140px); min-height: 420px; }
+.vw-chat-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 8px 2px; }
+.vw-chat-msg { display: flex; }
+.vw-chat-msg.user { justify-content: flex-end; }
+.vw-chat-msg.assistant { justify-content: flex-start; }
+.vw-chat-bubble {
+  max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 13.5px; line-height: 1.65;
+  background: var(--panel); border: 1px solid var(--border); color: var(--text);
+}
+.vw-chat-msg.user .vw-chat-bubble { background: var(--accent-dim); border-color: var(--accent); }
+.vw-chat-bubble p { margin: 4px 0; white-space: pre-wrap; }
+.vw-chat-bubble p:first-child { margin-top: 0; }
+.vw-chat-bubble p:last-child { margin-bottom: 0; }
+.vw-chat-typing { display: flex; gap: 5px; padding: 14px 16px; }
+.vw-chat-typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: vw-blink 1.2s infinite; }
+.vw-chat-typing span:nth-child(2) { animation-delay: 0.2s; }
+.vw-chat-typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes vw-blink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+.vw-chat-sugs { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 2px; }
+.vw-chat-input { display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.vw-chat-input .vw-input { flex: 1; }
+
+/* ---------------- 模型配置 ---------------- */
+.vw-models-block { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.vw-models-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.vw-models-head h3 { margin: 0 0 4px; font-size: 14px; }
+.vw-models-head p { margin: 0; font-size: 12.5px; color: var(--muted); }
+.vw-models-list { display: flex; flex-direction: column; gap: 8px; }
+.vw-model-card {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+}
+.vw-model-card.active { border-color: var(--accent); }
+.vw-model-info { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vw-model-info strong { font-size: 13.5px; }
+.vw-model-meta { width: 100%; font-size: 12px; color: var(--muted); }
+.vw-model-actions { display: flex; gap: 6px; }
+.vw-models-form { margin-top: 14px; padding: 14px; border: 1px dashed var(--border); border-radius: 10px; }

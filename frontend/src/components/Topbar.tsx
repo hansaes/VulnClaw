@@ -6,9 +6,10 @@ interface TopbarProps {
   taskRunning: boolean;
   taskStatus?: string | null;
   targetCount?: number;
+  onLogout?: () => void;
 }
 
-export function Topbar({ crumb, taskRunning, taskStatus, targetCount }: TopbarProps) {
+export function Topbar({ crumb, taskRunning, taskStatus, targetCount, onLogout }: TopbarProps) {
   const { t } = useT();
 
   return (
@@ -30,6 +31,11 @@ export function Topbar({ crumb, taskRunning, taskStatus, targetCount }: TopbarPr
           {taskRunning && <span className="dot" />}
           {taskStatus ? formatTaskStatus(taskStatus) : t("topbar.idle")}
         </span>
+        {onLogout && (
+          <button type="button" className="vw-btn vw-btn-ghost vw-btn-xs" onClick={onLogout}>
+            {t("auth.logout")}
+          </button>
+        )}
       </div>
     </header>
   );

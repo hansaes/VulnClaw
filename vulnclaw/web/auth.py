@@ -1,4 +1,4 @@
-"""Token-based authentication for the VulnClaw Web UI.
+"""Token- and password-based authentication for the VulnClaw Web UI.
 
 The token is generated once and persisted to ``~/.vulnclaw/web_token``.
 All ``/api/`` routes (except ``/api/health``) require a valid
@@ -14,10 +14,13 @@ on every subsequent request including the event stream.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import ipaddress
+import json
 import os
 import secrets
+import time
 from pathlib import Path
 
 try:
@@ -78,6 +81,79 @@ def verify_token(token: str) -> bool:
     return hmac.compare_digest(stored, token)
 
 
+CREDENTIALS_FILE = TOKEN_DIR / "web_credentials.json"
+
+#: In-memory server-side sessions: token -> expiry unix timestamp.
+_SESSIONS: dict[str, float] = {}
+_SESSION_TTL_SECONDS = 7 * 24 * 3600
+
+
+def _load_credentials() -> tuple[str, str, bool] | None:
+    """Return ``(username, secret, is_sha256)`` or *None* if not configured.
+
+    Credentials come from ``VULNCLAW_WEB_USERNAME`` / ``VULNCLAW_WEB_PASSWORD``
+    environment variables first, then from ``~/.vulnclaw/web_credentials.json``
+    (``{"username": ..., "password_sha256": ...}``).
+    """
+    username = os.environ.get("VULNCLAW_WEB_USERNAME", "").strip()
+    password = os.environ.get("VULNCLAW_WEB_PASSWORD", "")
+    if username and password:
+        return username, password, False
+    path = CREDENTIALS_FILE
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            user = str(data.get("username", "")).strip()
+            digest = str(data.get("password_sha256", "")).strip()
+            if user and digest:
+                return user, digest, True
+        except (OSError, ValueError):
+            pass
+    return None
+
+
+def password_auth_enabled() -> bool:
+    """Whether username/password login is configured."""
+    return _load_credentials() is not None
+
+
+def verify_credentials(username: str, password: str) -> bool:
+    """Check a username/password pair against the configured credentials."""
+    creds = _load_credentials()
+    if creds is None:
+        return False
+    stored_user, secret, is_sha256 = creds
+    if not hmac.compare_digest(stored_user, username.strip()):
+        return False
+    if is_sha256:
+        digest = hashlib.sha256(password.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(secret, digest)
+    return hmac.compare_digest(secret, password)
+
+
+def create_session() -> str:
+    """Create a server-side session token valid for 7 days."""
+    token = secrets.token_urlsafe(32)
+    _SESSIONS[token] = time.time() + _SESSION_TTL_SECONDS
+    return token
+
+
+def verify_session(token: str) -> bool:
+    """Whether *token* is a live server-side session."""
+    expiry = _SESSIONS.get(token)
+    if not expiry:
+        return False
+    if expiry < time.time():
+        _SESSIONS.pop(token, None)
+        return False
+    return True
+
+
+def destroy_session(token: str) -> None:
+    """Invalidate a server-side session token."""
+    _SESSIONS.pop(token, None)
+
+
 def web_cookie_secure() -> bool:
     """Whether browser sessions must be limited to HTTPS connections.
 
@@ -112,9 +188,15 @@ def attach_session_cookie(response, token: str, *, secure: bool | None = None) -
 
 
 def request_has_valid_session(request) -> bool:  # type: ignore[no-untyped-def]
-    """Whether *request* carries a session cookie holding a valid token."""
+    """Whether *request* carries a session cookie holding a valid token.
+
+    Accepts both server-side login sessions and the legacy bearer-token
+    cookie (``?token=`` exchange), so existing setups keep working.
+    """
     cookie = request.cookies.get(SESSION_COOKIE, "")
-    return bool(cookie) and verify_token(cookie)
+    if not cookie:
+        return False
+    return verify_session(cookie) or verify_token(cookie)
 
 
 def _client_is_loopback(client_host: str | None) -> bool:
@@ -151,7 +233,12 @@ if _HAS_STARLETTE:
 
         # Exact paths — not prefixes — so an added route like /api/healthcheck
         # or /api/health-secret is never accidentally left unauthenticated.
-        _EXEMPT_PATHS: frozenset[str] = frozenset({"/api/health"})
+        _EXEMPT_PATHS: frozenset[str] = frozenset({
+            "/api/health",
+            "/api/auth/login",
+            "/api/auth/status",
+            "/api/auth/logout",
+        })
 
         async def dispatch(self, request: Request, call_next):  # type: ignore[override]
             path = request.url.path

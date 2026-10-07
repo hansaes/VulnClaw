@@ -16,6 +16,7 @@ interface AppShellProps<T extends string> {
   onSelectView: (view: T) => void;
   onOpenTaskDetail: () => void;
   onStopTask: () => void;
+  onLogout?: () => void;
   children: ReactNode;
 }
 
@@ -32,6 +33,7 @@ export function AppShell<T extends string>({
   onOpenTaskDetail,
   onStopTask,
   children,
+  onLogout,
 }: AppShellProps<T>) {
   const { t } = useT();
   const taskRunning = activeTask?.status === "running" || activeTask?.status === "pending";
@@ -45,6 +47,7 @@ export function AppShell<T extends string>({
           taskRunning={taskRunning}
           taskStatus={activeTask?.status}
           targetCount={targetCount}
+          onLogout={onLogout}
         />
         {backendUnavailable && (
           <div style={{ padding: "16px 28px 0" }}>

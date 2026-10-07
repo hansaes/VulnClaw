@@ -1,7 +1,7 @@
 import { useT } from "../i18n";
 
 export type NavIconKey =
-  | "dashboard" | "plus" | "tasks" | "shield" | "reports" | "scope" | "settings" | "box";
+  | "dashboard" | "plus" | "tasks" | "shield" | "reports" | "scope" | "settings" | "box" | "memory" | "chat";
 
 export interface NavItem<T extends string> {
   key: T;
@@ -34,6 +34,10 @@ function Icon({ name }: { name: NavIconKey }) {
       return (<svg {...p}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4.5" /><circle cx="12" cy="12" r="1" fill="currentColor" /></svg>);
     case "box":
       return (<svg {...p}><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5" /></svg>);
+    case "memory":
+      return (<svg {...p}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13z" /><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" /></svg>);
+    case "chat":
+      return (<svg {...p}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" /></svg>);
     case "settings":
     default:
       return (<svg {...p}><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" /></svg>);
